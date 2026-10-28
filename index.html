@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>GPS Lite Ecuador</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <div id="map" aria-label="Mapa"></div>
@@ -53,8 +53,17 @@
 
 <div id="toast" class="toast" role="status" hidden></div>
 
+<script>
+/* Diagnóstico: muestra los errores de JavaScript en pantalla (se puede borrar cuando todo funcione) */
+window.onerror = function (m, src, line) {
+  var d = document.createElement('pre');
+  d.style.cssText = 'position:fixed;z-index:99;bottom:0;left:0;right:0;margin:0;padding:8px;background:#fee;color:#900;font:12px monospace;white-space:pre-wrap';
+  d.textContent = 'ERROR: ' + m + ' (' + String(src || '').split('/').pop() + ':' + line + ')';
+  document.body.appendChild(d);
+};
+</script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="routing.js"></script>
-<script src="app.js"></script>
+<script src="routing.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
