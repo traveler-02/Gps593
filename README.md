@@ -14,3 +14,8 @@ Sin GPS puedes buscar un destino y pulsar **Demo** para simular el recorrido.
 ## Límites
 OSRM, Nominatim y las teselas de CARTO son servicios públicos de demostración.
 Para producción, usa servidores propios o con licencia.
+
+## API key de CARTO (obligatoria para las teselas)
+1. Pídela gratis en https://carto.com/basemaps/apikey (llega por correo, hasta 5 millones de teselas/mes).
+2. Pégala en `app.js`, en la constante `CARTO_KEY`.
+3. En https://dashboard.basemaps.carto.com restringe la key a tu dominio (`TU-USUARIO.github.io`), porque en un sitio estático la key queda visible.
