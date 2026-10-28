@@ -23,7 +23,7 @@
   /* ---------- Mapa (centrado en Ecuador) ---------- */
   const map = L.map('map', { zoomControl: false }).setView([-1.83, -78.18], 7);
   // CARTO exige una API key gratuita (https://carto.com/basemaps/apikey). Pégala aquí:
-  const CARTO_KEY = cb1_4wh9_1_2c28c26457c5fdae8444b3bf ;
+const CARTO_KEY = 'cb1_4wh9_1_2c28c26457c5fdae8444b3bf';
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY, {
     subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap, © CARTO'
   }).addTo(map);
