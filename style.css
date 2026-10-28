@@ -1,0 +1,100 @@
+/* Paleta: señal vial verde (carreteras de Ecuador), amarillo del cursor, azul de ruta.
+   Sin fuentes web: se usa la tipografía del sistema para cargar al instante. */
+:root {
+  --bg: #ffffff; --fg: #14202b; --muted: #5b6b78; --line: #d9e0e6; --panel: #ffffffee;
+  --sign: #0a6b45; --sign-fg: #ffffff; --accent: #f4c20d; --danger: #c62828;
+  --route: #1769e0; --casing: #ffffff; --lift: 16px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+[data-theme="dark"] {
+  --bg: #10171e; --fg: #e8eef3; --muted: #93a3b1; --line: #27333e; --panel: #10171eee;
+  --sign: #0b5a3b; --route: #f4c20d; --casing: #10171e;
+}
+
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); overflow: hidden; font-size: 16px; }
+[hidden] { display: none !important; }
+body.has-route { --lift: 196px; }
+
+#map { position: fixed; inset: 0; z-index: 0; }
+/* Mapa oscuro sin descargar otro estilo: se invierte la capa de teselas */
+[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.8); }
+.route-casing { stroke: var(--casing); }
+.route { stroke: var(--route); }
+
+button {
+  font: inherit; color: var(--fg); background: transparent; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-height: 44px;
+}
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--sign); border-color: var(--sign); color: var(--sign-fg); font-weight: 700; flex: 1; }
+
+/* Buscador */
+.top { position: fixed; z-index: 10; top: 0; left: 0; right: 0; padding: calc(env(safe-area-inset-top) + 8px) 8px 0; }
+body.nav .top { display: none; }
+.search, .list, .sheet, .fab, .speed {
+  background: var(--panel); border: 1px solid var(--line); box-shadow: 0 2px 10px #0003;
+}
+.search { display: flex; gap: 6px; border-radius: 14px; padding: 6px; }
+.search input { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: transparent; border: 0; padding: 10px; outline: none; }
+.list { list-style: none; margin-top: 6px; border-radius: 14px; max-height: 45vh; overflow: auto; }
+.list li { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.list li:last-child { border-bottom: 0; }
+.list li span { flex: 1; font-size: .92rem; }
+.list li button { min-height: 32px; padding: 2px 8px; }
+.list li.empty { color: var(--muted); cursor: default; }
+
+/* HUD de giro */
+.turn {
+  position: fixed; z-index: 10; left: 8px; right: 8px; top: calc(env(safe-area-inset-top) + 8px);
+  display: flex; gap: 14px; align-items: center; padding: 12px 16px; border-radius: 14px;
+  background: var(--sign); color: var(--sign-fg); box-shadow: 0 4px 14px #0005;
+}
+.turn-icon { font-size: 3rem; line-height: 1; width: 1.2em; text-align: center; }
+.turn-body { flex: 1; min-width: 0; }
+.turn-dist { font-size: 2rem; font-weight: 800; line-height: 1.1; }
+.turn-text { font-size: 1.05rem; }
+.mute { color: var(--sign-fg); border-color: #fff5; min-width: 44px; padding: 8px; }
+
+/* Velocidad y botón de centrar */
+.speed {
+  position: fixed; z-index: 10; left: 10px; bottom: calc(var(--lift) + env(safe-area-inset-bottom));
+  width: 78px; padding: 6px 0; text-align: center; border: 2px solid var(--fg); border-radius: 14px; background: var(--bg);
+}
+.speed b { display: block; font-size: 1.9rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.speed small, .sheet-info small { color: var(--muted); }
+.fab {
+  position: fixed; z-index: 10; right: 10px; bottom: calc(var(--lift) + env(safe-area-inset-bottom));
+  width: 52px; height: 52px; padding: 0; border-radius: 50%; font-size: 1.4rem;
+}
+
+/* Panel inferior */
+.sheet {
+  position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; border-radius: 18px 18px 0 0;
+  padding: 12px 14px calc(env(safe-area-inset-bottom) + 12px);
+}
+.sheet-info { display: flex; justify-content: space-around; text-align: center; }
+.sheet-info b { display: block; font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.sheet-dest { margin: 6px 0 10px; color: var(--muted); font-size: .9rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-actions { display: flex; gap: 8px; }
+body.nav #btnCancel { flex: 1; }
+
+/* Marcadores */
+.car, .pin { background: none; border: 0; }
+.car-rot { width: 40px; height: 40px; transition: transform .5s linear; }
+.car-rot svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 2px #0007); }
+.pin::after {
+  content: ""; display: block; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--danger); border: 4px solid #fff; box-shadow: 0 0 0 2px var(--danger);
+}
+
+.toast {
+  position: fixed; z-index: 20; left: 50%; transform: translateX(-50%); bottom: calc(var(--lift) + 70px + env(safe-area-inset-bottom));
+  max-width: 90vw; padding: 10px 16px; border-radius: 10px; background: var(--fg); color: var(--bg); font-size: .92rem; text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) { .car-rot { transition: none; } }
+
+/* El botón del popup debe ser legible también en tema oscuro (el popup siempre es blanco) */
+.leaflet-popup-content button { color: #14202b; background: #fff; border-color: #c5ced6; }

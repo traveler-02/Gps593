@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GPS Lite Ecuador</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map" aria-label="Mapa"></div>
+
+<!-- Buscador -->
+<header class="top">
+  <form id="searchForm" class="search" role="search">
+    <input id="q" type="search" placeholder="Buscar dirección o lugar en Ecuador" autocomplete="off" aria-label="Buscar">
+    <button type="submit">Buscar</button>
+    <button type="button" id="btnFavs" aria-label="Favoritos">★</button>
+    <button type="button" id="btnTheme" aria-label="Cambiar tema">Auto</button>
+  </form>
+  <ul id="list" class="list" hidden></ul>
+</header>
+
+<!-- HUD: siguiente giro -->
+<section id="turn" class="turn" hidden aria-live="polite">
+  <div id="turnIcon" class="turn-icon" aria-hidden="true">↑</div>
+  <div class="turn-body">
+    <div id="turnDist" class="turn-dist">--</div>
+    <div id="turnText" class="turn-text">--</div>
+  </div>
+  <button id="btnMute" class="mute" aria-label="Activar o silenciar voz">🔊</button>
+</section>
+
+<!-- HUD: velocidad y recentrar -->
+<div id="speed" class="speed"><b id="speedVal">0</b><small>km/h</small></div>
+<button id="btnLocate" class="fab" aria-label="Centrar en mi ubicación">◎</button>
+
+<!-- Panel de ruta -->
+<footer id="sheet" class="sheet" hidden>
+  <div class="sheet-info">
+    <div><b id="sEta">--:--</b><small>llegada</small></div>
+    <div><b id="sTime">--</b><small>restante</small></div>
+    <div><b id="sDist">--</b><small>distancia</small></div>
+  </div>
+  <div id="sDest" class="sheet-dest"></div>
+  <div class="sheet-actions">
+    <button id="btnGo" class="primary">Iniciar</button>
+    <button id="btnDemo" title="Simula el recorrido sin GPS">Demo</button>
+    <button id="btnSave" aria-label="Guardar destino en favoritos">☆</button>
+    <button id="btnCancel">Cancelar</button>
+  </div>
+</footer>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="routing.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
