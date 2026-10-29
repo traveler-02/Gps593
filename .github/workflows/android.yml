@@ -1,0 +1,43 @@
+# Compila el APK de GPS 593 (Capacitor) en un servidor de GitHub y lo publica en la Release "android".
+# Uso: pestaña Actions > "Compilar APK Android" > Run workflow. Descarga gps593-debug.apk desde Releases.
+name: Compilar APK Android
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Preparar la web (www/)
+        run: |
+          npm install
+          mkdir -p www
+          cp -r index.html style.css app.js routing.js offline.js config.js manifest.webmanifest lib icons www/
+      - name: Crear el proyecto Android
+        run: |
+          npx cap add android
+          pip install pillow
+          python tools/patch_android.py
+          npx cap sync android
+      - name: Compilar
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Publicar el APK en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk gps593-debug.apk
+          gh release view android -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create android -R "$GITHUB_REPOSITORY" --title "GPS 593 para Android" \
+              --notes "APK de prueba. Instálalo en la radio o el celular (permite instalar apps de origen desconocido)."
+          gh release upload android gps593-debug.apk -R "$GITHUB_REPOSITORY" --clobber
+          echo "Descarga: https://github.com/$GITHUB_REPOSITORY/releases/tag/android"
