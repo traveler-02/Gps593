@@ -4,6 +4,7 @@
   const R = Routing;
   const $ = id => document.getElementById(id);
   const clear = el => { while (el.firstChild) el.removeChild(el.firstChild); };   // compatible con WebView antiguos
+  const NATIVE = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());                    // versión Android (Capacitor)
 
   /* ---------- Almacenamiento local (favoritos, tema, voz) ---------- */
   const store = {
@@ -424,7 +425,6 @@
   if ('serviceWorker' in navigator && !NATIVE) navigator.serviceWorker.register('sw.js').catch(() => {});
 
   /* ---------- Versión Android (Capacitor): lectura directa del pendrive con el plugin nativo UsbFiles ---------- */
-  const NATIVE = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
   const usb = (method, opts) => Capacitor.nativePromise('UsbFiles', method, opts || {});
   const b64 = str => { const t = atob(str), u = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) u[i] = t.charCodeAt(i); return u; };
 
