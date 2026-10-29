@@ -23,3 +23,12 @@ Para crear el flujo: en el repo, Add file > Create new file > `.github/workflows
 ## Límites actuales del ruteo local
 Sin restricciones de giro (giros prohibidos), sin tráfico ni peajes, rotondas tratadas como giros normales,
 y sin vías tipo `track` (caminos rurales sin asfaltar). OSM puede tener huecos en vías rurales.
+
+## Versión Android (APK)
+1. En el repo: Actions > "Compilar APK Android" > Run workflow (compila en un servidor de GitHub; no necesitas Android Studio).
+2. Descarga `gps593-debug.apk` de https://github.com/USUARIO/REPO/releases/tag/android e instálalo
+   (permite instalar apps de origen desconocido).
+3. Pon `ecuador.pmtiles` y `ecuador.g593` en el pendrive (en cualquier carpeta) y conéctalo a la radio.
+4. Al abrir GPS 593 busca y carga solos esos archivos. Si conectas el pendrive después: ☰ > "Buscar mapa y rutas en el pendrive".
+   La primera vez Android pide permiso de almacenamiento: acéptalo.
+5. ☰ > "Diagnóstico" muestra la versión del WebView de la radio (con menos de 80 el mapa puede fallar).

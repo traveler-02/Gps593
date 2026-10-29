@@ -17,7 +17,7 @@ body { background: var(--bg); color: var(--fg); overflow: hidden; font-size: 16p
 [hidden] { display: none !important; }
 body.has-route { --lift: 196px; }
 
-#map { position: fixed; inset: 0; z-index: 0; }
+#map { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
 /* Mapa oscuro sin descargar otro estilo: se invierte la capa de teselas */
 [data-theme="dark"] body:not(.vec) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.8); }
 .route-casing { stroke: var(--casing); }

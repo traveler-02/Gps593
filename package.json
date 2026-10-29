@@ -1,0 +1,2 @@
+{ "name": "gps593", "version": "1.0.0", "private": true,
+  "dependencies": { "@capacitor/android": "6.2.3", "@capacitor/cli": "6.2.3", "@capacitor/core": "6.2.3" } }

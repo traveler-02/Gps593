@@ -3,6 +3,7 @@
   'use strict';
   const R = Routing;
   const $ = id => document.getElementById(id);
+  const clear = el => { while (el.firstChild) el.removeChild(el.firstChild); };   // compatible con WebView antiguos
 
   /* ---------- Almacenamiento local (favoritos, tema, voz) ---------- */
   const store = {
@@ -42,7 +43,7 @@
   async function loadOfflineMap(file) {
     try {
       // Lectura por rangos directamente del archivo: no se copia nada al almacenamiento interno
-      const source = new pmtiles.PMTiles(new pmtiles.FileSource(file));
+      const source = new pmtiles.PMTiles(file.native ? new NativeSource(file.native) : new pmtiles.FileSource(file));
       const h = await source.getHeader();                           // falla si no es un .pmtiles válido
       pm = { name: file.name, source, maxZoom: h.maxZoom };
       setBase();
@@ -102,7 +103,7 @@
 
   /* ---------- Buscador y favoritos ---------- */
   function showList(items, isFav) {
-    const ul = $('list'); ul.replaceChildren();
+    const ul = $('list'); clear(ul);
     if (!items.length) {
       const li = document.createElement('li'); li.className = 'empty';
       li.textContent = isFav ? 'Aún no tienes favoritos. Guarda un destino con ☆.' : 'Sin resultados en Ecuador.';
@@ -213,6 +214,7 @@
   /* ---------- Navegación ---------- */
   function startNav() {
     setNavUI(true); state.follow = true;
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(l => { state.wl = l; }).catch(() => {}); } catch (e) { /* sin soporte */ }
     const r = state.route;
     paintTurn(r.steps[Math.min(1, r.steps.length - 1)], r.steps[Math.min(1, r.steps.length - 1)].start);
     Voice.say(r.steps[0].text);
@@ -230,6 +232,7 @@
   }
   function stopNav() {
     clearInterval(state.demo); state.demo = null;
+    if (state.wl) { state.wl.release(); state.wl = null; }
     stopWatch();
     if (Voice.ok) speechSynthesis.cancel();
     setNavUI(false);
@@ -361,7 +364,7 @@
   }
 
   function showRoutes() {
-    const ul = $('list'); ul.replaceChildren();
+    const ul = $('list'); clear(ul);
     const items = routes();
     if (!items.length) {
       const li = document.createElement('li'); li.className = 'empty';
@@ -380,7 +383,7 @@
 
   /* ---------- Menú ☰: mapa sin conexión y rutas guardadas ---------- */
   function showMenu() {
-    const ul = $('list'); ul.replaceChildren();
+    const ul = $('list'); clear(ul);
     const hd = document.createElement('li'), im = document.createElement('img'), tt = document.createElement('span');
     hd.className = 'empty'; im.src = 'icons/logo.png'; im.alt = ''; im.style.height = '40px';
     tt.textContent = 'GPS 593'; tt.style.fontWeight = '700'; hd.append(im, tt); ul.append(hd);
@@ -394,8 +397,13 @@
     add(pm ? `🗺 Mapa sin conexión activo: ${pm.name}. Cambiar…`
            : `🗺 Cargar mapa y rutas sin conexión (.pmtiles / .g593)${prev ? ' · último mapa: ' + prev.name : ''}`, () => $('fileMap').click());
     if (pm) add('🌐 Volver al mapa en línea', () => { pm = null; $('fileMap').value = ''; setBase(); });
+    if (NATIVE) add('🔌 Buscar mapa y rutas en el pendrive', () => usbScan(true));
     if (Offline.ready()) add('✅ Rutas y búsqueda sin conexión activas', () => {});
     add(`💾 Rutas guardadas (${routes().length})`, showRoutes);
+    add('ℹ Diagnóstico', () => {
+      const v = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1];
+      toast(`WebView Chrome ${v || '?'}${NATIVE ? ' · app Android' : ''}${v && v < 80 ? ' · antigua: puede fallar el mapa' : ''}`, 7000);
+    });
     ul.hidden = false;
   }
   $('btnMenu').onclick = () => { if ($('list').hidden) showMenu(); else $('list').hidden = true; };
@@ -413,7 +421,40 @@
   };
 
   // La app completa queda disponible sin internet después de la primera visita
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && !NATIVE) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  /* ---------- Versión Android (Capacitor): lectura directa del pendrive con el plugin nativo UsbFiles ---------- */
+  const NATIVE = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
+  const usb = (method, opts) => Capacitor.nativePromise('UsbFiles', method, opts || {});
+  const b64 = str => { const t = atob(str), u = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) u[i] = t.charCodeAt(i); return u; };
+
+  class NativeSource {                                              // fuente de pmtiles: lecturas por rango desde el pendrive
+    constructor(path) { this.path = path; }
+    getKey() { return this.path; }
+    async getBytes(offset, length) { const r = await usb('read', { path: this.path, offset, length }); return { data: b64(r.data).buffer }; }
+  }
+  async function readWhole(path, size) {                           // el .g593 completo, por trozos de 4 MB
+    const out = new Uint8Array(size);
+    for (let off = 0; off < size; off += 4194304) {
+      const r = await usb('read', { path, offset: off, length: Math.min(4194304, size - off) });
+      out.set(b64(r.data), off);
+    }
+    return out.buffer;
+  }
+  async function usbScan(manual) {                                  // busca y carga ecuador.pmtiles y ecuador.g593
+    try {
+      const a = await usb('access');
+      if (!a.granted) { if (manual) toast('Acepta el permiso de almacenamiento y vuelve a pulsar "Buscar en el pendrive".', 6000); return false; }
+      const seen = {}, list = (await usb('find')).files.filter(f => { const k = f.name + f.size; return seen[k] ? false : (seen[k] = true); });
+      const pick = ext => list.filter(f => f.name.toLowerCase().endsWith(ext)).sort((x, y) => y.size - x.size)[0];
+      const m = pick('.pmtiles'), g = pick('.g593');
+      if (!m && !g) { if (manual) toast('No se encontraron archivos .pmtiles ni .g593 en el pendrive.', 6000); return false; }
+      if (m) await loadOfflineMap({ name: m.name, size: m.size, native: m.path });
+      if (g) await loadGraph({ name: g.name, size: g.size, arrayBuffer: () => readWhole(g.path, g.size) });
+      return true;
+    } catch (e) { if (manual) toast('No se pudo leer el almacenamiento: ' + (e.message || e)); return false; }
+  }
+  if (NATIVE) setTimeout(() => usbScan(false), 800);                // al abrir la app, carga solo lo que haya en el pendrive
 
   /* ---------- Botones ---------- */
   $('btnGo').onclick = () => { Voice.unlock(); startNav(); startWatch(); };
