@@ -3,12 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>GPS Lite Ecuador</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="style.css?v=3">
+<title>GPS 593</title>
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1d5a9e">
+<link rel="stylesheet" href="lib/leaflet.css">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div id="map" aria-label="Mapa"></div>
+<input type="file" id="fileMap" multiple hidden>
 
 <!-- Buscador -->
 <header class="top">
@@ -17,6 +22,7 @@
     <button type="submit">Buscar</button>
     <button type="button" id="btnFavs" aria-label="Favoritos">★</button>
     <button type="button" id="btnTheme" aria-label="Cambiar tema">Auto</button>
+    <button type="button" id="btnMenu" aria-label="Menú: mapa sin conexión y rutas guardadas">☰</button>
   </form>
   <ul id="list" class="list" hidden></ul>
 </header>
@@ -47,6 +53,7 @@
     <button id="btnGo" class="primary">Iniciar</button>
     <button id="btnDemo" title="Simula el recorrido sin GPS">Demo</button>
     <button id="btnSave" aria-label="Guardar destino en favoritos">☆</button>
+    <button id="btnRouteSave" aria-label="Guardar ruta para usarla sin internet">💾</button>
     <button id="btnCancel">Cancelar</button>
   </div>
 </footer>
@@ -62,8 +69,12 @@ window.onerror = function (m, src, line) {
   document.body.appendChild(d);
 };
 </script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="routing.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="lib/leaflet.js"></script>
+<script src="lib/pmtiles.js"></script>
+<script src="lib/protomaps-leaflet.js"></script>
+<script src="offline.js?v=5"></script>
+<script src="routing.js?v=5"></script>
+<script src="config.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

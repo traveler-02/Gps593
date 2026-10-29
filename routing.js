@@ -82,6 +82,13 @@
     return { type: m.type, icon, text };
   }
 
+  /* fetch con límite de tiempo (señal débil); respeta el cancelar del usuario */
+  function fetchT(url, signal, ms) {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+    if (signal) signal.addEventListener('abort', () => c.abort());
+    return fetch(url, { signal: c.signal }).finally(() => clearTimeout(t));
+  }
+
   /* ---------- OSRM ---------- */
   function build(rt) {
     const coords = rt.geometry.coordinates.map(c => [c[1], c[0]]);   // GeoJSON [lng,lat] → [lat,lng]
@@ -96,16 +103,23 @@
     return { coords, cum, total, distance: rt.distance, duration: rt.duration, steps };
   }
 
-  async function fetchRoute(from, to, signal) {                       // from, to = [lat, lng]
+  async function osrmRoute(from, to, signal) {                       // from, to = [lat, lng]
     const url = `${OSRM}${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson&steps=true`;
     let j;
-    try { j = await (await fetch(url, { signal })).json(); }
+    try { j = await (await fetchT(url, signal, 8000)).json(); }
     catch (e) {
-      if (e.name === 'AbortError') throw e;
+      if (signal && signal.aborted) throw e;
       throw new Error('No se pudo conectar con el servicio de rutas.');
     }
     if (j.code !== 'Ok' || !j.routes || !j.routes.length) throw new Error('No hay ruta disponible entre esos puntos.');
     return build(j.routes[0]);
+  }
+
+  /* Reconstruye una ruta guardada (se guarda sin 'cum' para ahorrar espacio) */
+  function restore(sv) {
+    const cum = [0];
+    for (let i = 1; i < sv.coords.length; i++) cum.push(cum[i - 1] + haversine(sv.coords[i - 1], sv.coords[i]));
+    return { ...sv, cum, total: cum[cum.length - 1] };
   }
 
   /* Estado del viaje para una posición p = [lat, lng] */
@@ -124,15 +138,31 @@
   }
 
   /* ---------- Nominatim (solo Ecuador) ---------- */
-  async function geocode(q, signal) {
+  async function onlineGeocode(q, signal) {
     const url = `${NOMINATIM}?format=jsonv2&countrycodes=ec&limit=6&accept-language=es&q=${encodeURIComponent(q)}`;
     let rows;
-    try { rows = await (await fetch(url, { signal })).json(); }
+    try { rows = await (await fetchT(url, signal, 8000)).json(); }
     catch (e) {
-      if (e.name === 'AbortError') throw e;
+      if (signal && signal.aborted) throw e;
       throw new Error('Búsqueda no disponible.');
     }
     return rows.map(p => ({ name: p.display_name.split(', ').slice(0, 4).join(', '), lat: +p.lat, lng: +p.lon }));
+  }
+
+  /* ---------- Con internet usa OSRM/Nominatim; sin internet (o si fallan) usa los datos .g593 si están cargados ---------- */
+  const local = () => g.Offline && g.Offline.ready();
+  async function fetchRoute(from, to, signal) {
+    if (local() && !navigator.onLine) return { ...build(g.Offline.route(from, to)), local: true };
+    try { return await osrmRoute(from, to, signal); }
+    catch (e) {
+      if ((signal && signal.aborted) || !local()) throw e;
+      return { ...build(g.Offline.route(from, to)), local: true };
+    }
+  }
+  async function geocode(q, signal) {
+    if (local() && !navigator.onLine) return g.Offline.search(q);
+    try { const r = await onlineGeocode(q, signal); return r.length || !local() ? r : g.Offline.search(q); }
+    catch (e) { if ((signal && signal.aborted) || !local()) throw e; return g.Offline.search(q); }
   }
 
   /* ---------- Formatos ---------- */
@@ -144,5 +174,5 @@
   const fmtClock = sec => new Date(Date.now() + sec * 1000)
     .toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
 
-  g.Routing = { geocode, fetchRoute, progress, pointAt, haversine, bearing, fmtDist, fmtTime, fmtClock };
+  g.Routing = { geocode, fetchRoute, restore, progress, pointAt, haversine, bearing, fmtDist, fmtTime, fmtClock };
 })(typeof window !== 'undefined' ? window : globalThis);

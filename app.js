@@ -7,7 +7,7 @@
   /* ---------- Almacenamiento local (favoritos, tema, voz) ---------- */
   const store = {
     get(k, d) { try { const v = localStorage.getItem('gpsl.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
-    set(k, v) { try { localStorage.setItem('gpsl.' + k, JSON.stringify(v)); } catch { /* sin espacio o bloqueado */ } }
+    set(k, v) { try { localStorage.setItem('gpsl.' + k, JSON.stringify(v)); return true; } catch { return false; } }
   };
   const favs = () => store.get('favs', []);
 
@@ -22,11 +22,36 @@
 
   /* ---------- Mapa (centrado en Ecuador) ---------- */
   const map = L.map('map', { zoomControl: false }).setView([-1.83, -78.18], 7);
-  // CARTO exige una API key gratuita (https://carto.com/basemaps/apikey). Pégala aquí:
-const CARTO_KEY = 'cb1_4wh9_1_2c28c26457c5fdae8444b3bf';
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY, {
-    subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap, © CARTO'
-  }).addTo(map);
+  /* Capa base: en línea (CARTO, key en config.js) o sin conexión (archivo .pmtiles leído desde el pendrive) */
+  const CARTO_KEY = (window.GPSL_CONFIG || {}).CARTO_KEY || '';
+  let baseLayer = null, pm = null;                                  // pm = mapa sin conexión activo
+  function setBase() {
+    if (baseLayer) baseLayer.remove();
+    document.body.classList.toggle('vec', !!pm);
+    baseLayer = pm
+      ? protomapsL.leafletLayer({
+          url: pm.source, lang: 'es', maxDataZoom: pm.maxZoom,
+          flavor: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+          attribution: '© OpenStreetMap, Protomaps'
+        })
+      : L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY, {
+          subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap, © CARTO'
+        });
+    baseLayer.addTo(map);
+  }
+  async function loadOfflineMap(file) {
+    try {
+      // Lectura por rangos directamente del archivo: no se copia nada al almacenamiento interno
+      const source = new pmtiles.PMTiles(new pmtiles.FileSource(file));
+      const h = await source.getHeader();                           // falla si no es un .pmtiles válido
+      pm = { name: file.name, source, maxZoom: h.maxZoom };
+      setBase();
+      map.fitBounds([[h.minLat, h.minLon], [h.maxLat, h.maxLon]]);
+      store.set('offlineMap', { name: file.name });
+      toast('Mapa sin conexión cargado: ' + file.name);
+    } catch (e) { toast('No se pudo leer ese archivo. Debe ser un .pmtiles.'); }
+  }
+  setBase();
   map.on('dragstart', () => { state.follow = false; });
   map.on('click', e => {
     if (state.nav) return;
@@ -48,8 +73,10 @@ const CARTO_KEY = 'cb1_4wh9_1_2c28c26457c5fdae8444b3bf';
   function applyTheme() {
     const now = new Date(), h = now.getHours() + now.getMinutes() / 60;
     const eff = theme === 'auto' ? (h >= 18.25 || h < 6.25 ? 'dark' : 'light') : theme;
+    const changed = document.documentElement.dataset.theme !== eff;
     document.documentElement.dataset.theme = eff;
     $('btnTheme').textContent = LABEL[theme];
+    if (changed && pm) setBase();                                   // el mapa vectorial cambia de estilo claro/oscuro
   }
   $('btnTheme').onclick = () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % 3]; store.set('theme', theme); applyTheme(); };
   setInterval(() => { if (theme === 'auto') applyTheme(); }, 60000);
@@ -135,7 +162,7 @@ const CARTO_KEY = 'cb1_4wh9_1_2c28c26457c5fdae8444b3bf';
     state.nav = on;
     document.body.classList.toggle('nav', on);
     $('turn').hidden = !on;
-    ['btnGo', 'btnDemo', 'btnSave'].forEach(id => { $(id).hidden = on; });
+    ['btnGo', 'btnDemo', 'btnSave', 'btnRouteSave'].forEach(id => { $(id).hidden = on; });
     $('btnCancel').textContent = on ? 'Salir' : 'Cancelar';
   }
 
@@ -162,11 +189,8 @@ const CARTO_KEY = 'cb1_4wh9_1_2c28c26457c5fdae8444b3bf';
       state.route = r; state.spoken = {}; state.off = 0;
       drawRoute();
       if (reroute) return;
-      $('sheet').hidden = false; document.body.classList.add('has-route');
-      $('sDest').textContent = state.dest.name;
-      paintSummary(r.duration, r.distance);
-      setNavUI(false);
-      map.fitBounds(layers.line.getBounds(), { paddingTopLeft: [24, 90], paddingBottomRight: [24, 230] });
+      presentRoute();
+      if (r.local) toast('Ruta calculada sin conexión');
     } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
   }
 
@@ -271,6 +295,11 @@ const CARTO_KEY = 'cb1_4wh9_1_2c28c26457c5fdae8444b3bf';
     const now = Date.now();
     if (now - state.lastReroute < 10000) return;
     state.lastReroute = now; state.off = 0;
+    if (!navigator.onLine && !Offline.ready()) {                    // sin internet y sin datos .g593 no hay recálculo
+      state.lastReroute = now + 20000;
+      Voice.say('Te has salido de la ruta'); toast('Sin internet: no se puede recalcular la ruta.');
+      return;
+    }
     Voice.say('Recalculando ruta'); toast('Recalculando ruta…');
     computeRoute(p, true);
   }
@@ -302,6 +331,89 @@ const CARTO_KEY = 'cb1_4wh9_1_2c28c26457c5fdae8444b3bf';
       onFix({ coords: { latitude: pos[0], longitude: pos[1], speed: 14, heading, accuracy: 5 }, timestamp: Date.now() });
     }, 1000);
   }
+
+  /* ---------- Rutas guardadas (funcionan sin internet) ---------- */
+  const routes = () => store.get('routes', []);
+  const sameDest = (a, b) => a.lat === b.lat && a.lng === b.lng;
+
+  function presentRoute() {
+    $('sheet').hidden = false; document.body.classList.add('has-route');
+    $('sDest').textContent = state.dest.name;
+    paintSummary(state.route.duration, state.route.distance);
+    setNavUI(false);
+    map.fitBounds(layers.line.getBounds(), { paddingTopLeft: [24, 90], paddingBottomRight: [24, 230] });
+  }
+
+  $('btnRouteSave').onclick = () => {
+    if (!state.route) return;
+    const { coords, steps, distance, duration } = state.route, d = state.dest;
+    const slim = { coords: coords.map(c => [+c[0].toFixed(5), +c[1].toFixed(5)]), steps, distance, duration };
+    const list = routes().filter(x => !sameDest(x.dest, d));
+    list.unshift({ dest: d, route: slim });
+    toast(store.set('routes', list.slice(0, 5)) ? 'Ruta guardada: podrás usarla sin internet' : 'No hay espacio para guardar la ruta');
+  };
+
+  function openSaved(item) {
+    stopNav(); state.dest = item.dest; state.route = R.restore(item.route);
+    state.spoken = {}; state.off = 0;
+    drawRoute(); presentRoute();
+    toast('Ruta cargada. Inicia desde el punto de partida.');
+  }
+
+  function showRoutes() {
+    const ul = $('list'); ul.replaceChildren();
+    const items = routes();
+    if (!items.length) {
+      const li = document.createElement('li'); li.className = 'empty';
+      li.textContent = 'No hay rutas guardadas. Calcula una y pulsa 💾.'; ul.append(li);
+    }
+    items.forEach(it => {
+      const li = document.createElement('li'), s = document.createElement('span'), x = document.createElement('button');
+      s.textContent = `${it.dest.name} · ${R.fmtDist(it.route.distance)}`;
+      x.textContent = '✕'; x.setAttribute('aria-label', 'Borrar ruta guardada');
+      x.onclick = e => { e.stopPropagation(); store.set('routes', routes().filter(r => !sameDest(r.dest, it.dest))); showRoutes(); };
+      li.append(s, x); li.onclick = () => { ul.hidden = true; openSaved(it); };
+      ul.append(li);
+    });
+    ul.hidden = false;
+  }
+
+  /* ---------- Menú ☰: mapa sin conexión y rutas guardadas ---------- */
+  function showMenu() {
+    const ul = $('list'); ul.replaceChildren();
+    const hd = document.createElement('li'), im = document.createElement('img'), tt = document.createElement('span');
+    hd.className = 'empty'; im.src = 'icons/logo.png'; im.alt = ''; im.style.height = '40px';
+    tt.textContent = 'GPS 593'; tt.style.fontWeight = '700'; hd.append(im, tt); ul.append(hd);
+    const add = (text, fn) => {
+      const li = document.createElement('li'), s = document.createElement('span');
+      s.textContent = text; li.append(s);
+      li.onclick = () => { ul.hidden = true; fn(); };
+      ul.append(li);
+    };
+    const prev = store.get('offlineMap', null);
+    add(pm ? `🗺 Mapa sin conexión activo: ${pm.name}. Cambiar…`
+           : `🗺 Cargar mapa y rutas sin conexión (.pmtiles / .g593)${prev ? ' · último mapa: ' + prev.name : ''}`, () => $('fileMap').click());
+    if (pm) add('🌐 Volver al mapa en línea', () => { pm = null; $('fileMap').value = ''; setBase(); });
+    if (Offline.ready()) add('✅ Rutas y búsqueda sin conexión activas', () => {});
+    add(`💾 Rutas guardadas (${routes().length})`, showRoutes);
+    ul.hidden = false;
+  }
+  $('btnMenu').onclick = () => { if ($('list').hidden) showMenu(); else $('list').hidden = true; };
+  async function loadGraph(file) {
+    try {
+      toast('Cargando datos de rutas…', 8000);
+      const i = await Offline.load(file);                            // rutas y búsqueda sin conexión
+      store.set('offlineGraph', { name: file.name });
+      toast(`Rutas y búsqueda sin conexión listas (${i.places.toLocaleString('es-EC')} lugares)`);
+    } catch (e) { toast('No se pudo leer ese archivo: ' + e.message); }
+  }
+  // Se pueden elegir los dos archivos a la vez (.pmtiles = mapa, .g593 = rutas y búsqueda)
+  $('fileMap').onchange = async e => {
+    for (const f of Array.from(e.target.files)) { if (/\.g593$/i.test(f.name)) await loadGraph(f); else await loadOfflineMap(f); }
+  };
+
+  // La app completa queda disponible sin internet después de la primera visita
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
   /* ---------- Botones ---------- */
   $('btnGo').onclick = () => { Voice.unlock(); startNav(); startWatch(); };

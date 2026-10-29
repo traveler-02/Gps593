@@ -1,21 +1,25 @@
-# GPS Lite Ecuador
+# GPS 593
 
-Navegación paso a paso ligera: sin anuncios, sin analíticas y sin rastreo en segundo plano.
-HTML + CSS + JavaScript vanilla, con Leaflet, OSRM y Nominatim.
+Navegación paso a paso ligera para Ecuador: sin anuncios, sin analíticas y sin rastreo en segundo plano.
+HTML + CSS + JavaScript, Leaflet, OSRM y Nominatim. Las librerías van en `lib/` (no dependen de internet).
 
-## Probar en GitHub Pages
-1. Sube `index.html`, `style.css`, `app.js` y `routing.js` a la raíz del repositorio.
-2. Settings > Pages > Source: **Deploy from a branch** > rama `main`, carpeta `/ (root)` > Save.
-3. Abre `https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/` (tarda 1–2 minutos la primera vez).
+## Publicar en GitHub Pages
+Sube TODO el contenido de esta carpeta a la raíz del repositorio (incluidas `lib/`, `icons/`, `tools/` y `.github/`).
+Settings > Pages > Deploy from a branch > `main` / `(root)`. La key de CARTO se edita solo en `config.js`.
 
-Pages usa HTTPS, así que el navegador permite la geolocalización.
-Sin GPS puedes buscar un destino y pulsar **Demo** para simular el recorrido.
+## Sin internet (tres piezas)
+1. **La app**: tras la primera visita con internet queda guardada en el dispositivo (`sw.js`).
+2. **Mapa y rutas en el pendrive**: en el repo, Actions > "Crear mapa y rutas de Ecuador" > Run workflow
+   (primero con `dry_run` activado para ver el tamaño; luego desactivado). Los archivos `ecuador.pmtiles` y
+   `ecuador.g593` quedan en Releases (https://github.com/USUARIO/REPO/releases/tag/mapas); cópialos al pendrive.
+   En la app: ☰ > "Cargar mapa y rutas sin conexión" y elige los dos archivos a la vez.
+   Con el navegador hay que volver a elegirlos cada vez que se abre la app.
+3. **Con los dos archivos cargados** funcionan sin internet: mapa, búsqueda de calles, poblaciones y
+   gasolineras/hospitales/farmacias/policía, cálculo de rutas y recálculo al desviarse, voz, velocidad y ETA.
+   Con internet se usa OSRM/Nominatim; si fallan o no hay señal, la app cambia sola a los datos locales.
 
-## Límites
-OSRM, Nominatim y las teselas de CARTO son servicios públicos de demostración.
-Para producción, usa servidores propios o con licencia.
+Para crear el flujo: en el repo, Add file > Create new file > `.github/workflows/crear-mapa.yml` y pega su contenido.
 
-## API key de CARTO (obligatoria para las teselas)
-1. Pídela gratis en https://carto.com/basemaps/apikey (llega por correo, hasta 5 millones de teselas/mes).
-2. Pégala en `app.js`, en la constante `CARTO_KEY`.
-3. En https://dashboard.basemaps.carto.com restringe la key a tu dominio (`TU-USUARIO.github.io`), porque en un sitio estático la key queda visible.
+## Límites actuales del ruteo local
+Sin restricciones de giro (giros prohibidos), sin tráfico ni peajes, rotondas tratadas como giros normales,
+y sin vías tipo `track` (caminos rurales sin asfaltar). OSM puede tener huecos en vías rurales.
