@@ -1,0 +1,63 @@
+# Crea los archivos para usar GPS 593 sin internet y los publica en una Release del repositorio:
+#   ecuador.pmtiles  (mapa)      ecuador.g593  (rutas y búsqueda sin conexión)
+# Uso: pestaña Actions > "Crear mapa y rutas de Ecuador" > Run workflow.
+# Primero con dry_run activado (solo muestra el tamaño del mapa). Después desactívalo.
+# Las Releases admiten archivos de hasta 2 GiB y no gastan la cuota de 500 MB de los artefactos.
+name: Crear mapa y rutas de Ecuador
+on:
+  workflow_dispatch:
+    inputs:
+      bbox:
+        description: 'Zona del mapa: lon_min,lat_min,lon_max,lat_max (Ecuador continental por defecto)'
+        default: '-81.1,-5.1,-75.1,1.5'
+      maxzoom:
+        description: 'Zoom máximo del mapa (cada nivel duplica el tamaño aprox.; prueba 12, 13 o 14)'
+        default: '13'
+      nombre:
+        description: 'Nombre base de los archivos'
+        default: 'ecuador'
+      dry_run:
+        description: 'Solo calcular el tamaño del mapa (no crea ni publica nada)'
+        type: boolean
+        default: true
+permissions:
+  contents: write
+jobs:
+  crear:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar pmtiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R protomaps/go-pmtiles -p '*Linux_x86_64.tar.gz' -D /tmp/pm
+          mkdir -p /tmp/pm/bin && tar xzf /tmp/pm/*.tar.gz -C /tmp/pm/bin
+      - name: Mapa (.pmtiles)
+        run: |
+          for d in 1 2 3; do
+            day=$(date -u -d "$d day ago" +%Y%m%d)
+            if curl -sf -r 0-0 -o /dev/null "https://build.protomaps.com/$day.pmtiles"; then break; fi
+          done
+          echo "Usando la compilación del $day"
+          EXTRA=""; if [ "${{ inputs.dry_run }}" = "true" ]; then EXTRA="--dry-run"; fi
+          /tmp/pm/bin/pmtiles extract "https://build.protomaps.com/$day.pmtiles" "${{ inputs.nombre }}.pmtiles" \
+            --bbox="${{ inputs.bbox }}" --maxzoom=${{ inputs.maxzoom }} $EXTRA
+          ls -lh *.pmtiles 2>/dev/null || true
+      - name: Rutas y búsqueda (.g593)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          pip install osmium numpy
+          curl -L -o ecuador.osm.pbf https://download.geofabrik.de/south-america/ecuador-latest.osm.pbf
+          python tools/build_graph.py ecuador.osm.pbf "${{ inputs.nombre }}.g593"
+          ls -lh *.g593
+      - name: Publicar en Releases
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view mapas -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create mapas -R "$GITHUB_REPOSITORY" --title "Mapas y datos de GPS 593" \
+              --notes "Archivos para usar sin internet: copia el .pmtiles y el .g593 al pendrive."
+          gh release upload mapas "${{ inputs.nombre }}.pmtiles" "${{ inputs.nombre }}.g593" -R "$GITHUB_REPOSITORY" --clobber
+          echo "Descarga: https://github.com/$GITHUB_REPOSITORY/releases/tag/mapas"
