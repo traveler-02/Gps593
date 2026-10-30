@@ -159,10 +159,31 @@
       return { ...build(g.Offline.route(from, to)), local: true };
     }
   }
-  async function geocode(q, signal) {
+  /* Photon (OpenStreetMap): tolera errores de escritura y sirve para sugerencias mientras se escribe.
+     Nominatim no permite autocompletar, por eso solo se usa al pulsar Buscar. */
+  async function photon(q, signal, near) {
+    let url = `https://photon.komoot.io/api/?limit=8&bbox=-81.1,-5.1,-75.1,1.5&q=${encodeURIComponent(q)}`;
+    if (near) url += `&lat=${near[0].toFixed(4)}&lon=${near[1].toFixed(4)}`;     // prioriza lo cercano
+    let j;
+    try { j = await (await fetchT(url, signal, 6000)).json(); }
+    catch (e) { if (signal && signal.aborted) throw e; throw new Error('Búsqueda no disponible.'); }
+    const seen = {};
+    return (j.features || []).filter(f => !f.properties.countrycode || f.properties.countrycode === 'EC').map(f => {
+      const p = f.properties, c = f.geometry.coordinates;
+      const street = [p.street, p.housenumber].filter(Boolean).join(' ');
+      const title = p.name || street || p.city || '';
+      const sub = [p.name ? street : '', p.district, p.city || p.county, p.state].filter(Boolean).join(', ');
+      return { name: sub ? `${title}, ${sub}` : title, title, sub, lat: c[1], lng: c[0] };
+    }).filter(r => r.title && !seen[r.name] && (seen[r.name] = 1));
+  }
+  async function geocode(q, signal, opts) {
+    opts = opts || {};
     if (local() && !navigator.onLine) return g.Offline.search(q);
-    try { const r = await onlineGeocode(q, signal); return r.length || !local() ? r : g.Offline.search(q); }
-    catch (e) { if ((signal && signal.aborted) || !local()) throw e; return g.Offline.search(q); }
+    try {
+      let r = await photon(q, signal, opts.near);
+      if (!r.length && !opts.typing) r = await onlineGeocode(q, signal);          // Nominatim solo en búsquedas explícitas
+      return r.length || !local() ? r : g.Offline.search(q);
+    } catch (e) { if ((signal && signal.aborted) || !local()) throw e; return g.Offline.search(q); }
   }
 
   /* ---------- Formatos ---------- */

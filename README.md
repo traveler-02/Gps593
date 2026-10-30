@@ -32,3 +32,11 @@ y sin vías tipo `track` (caminos rurales sin asfaltar). OSM puede tener huecos 
 4. Al abrir GPS 593 busca y carga solos esos archivos. Si conectas el pendrive después: ☰ > "Buscar mapa y rutas en el pendrive".
    La primera vez Android pide permiso de almacenamiento: acéptalo.
 5. ☰ > "Diagnóstico" muestra la versión del WebView de la radio (con menos de 80 el mapa puede fallar).
+
+## Ajustes (engranaje) y búsqueda
+- Engranaje: tema (Auto/Claro/Oscuro), guía por voz, pantalla encendida, alerta de velocidad con límite personal,
+  estado y gestión de los archivos sin conexión, favoritos y rutas guardadas, diagnóstico.
+- La búsqueda sugiere lugares mientras escribes (Photon/OpenStreetMap, con prioridad a lo cercano). Al pulsar Enter,
+  si no hay resultados, prueba también con Nominatim. Lo que no esté mapeado en OpenStreetMap no aparecerá.
+- En el navegador, los archivos .pmtiles/.g593 elegidos una vez se guardan en el almacenamiento privado de la app
+  y se cargan solos en cada inicio (se pueden borrar desde Ajustes). En el APK se buscan solos en el pendrive.

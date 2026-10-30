@@ -9,54 +9,81 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#1d5a9e">
 <link rel="stylesheet" href="lib/leaflet.css">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
+<!-- Filtro del modo oscuro: invierte el mapa y lo lleva a azul marino (no negro) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="navy" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.5051 -1.2584 -0.1267 0 0.9650 -0.3749 -0.3784 -0.1267 0 1.0450 -0.3749 -1.2584 0.7533 0 1.2000 0 0 0 1 0"/></filter></svg>
 <div id="map" aria-label="Mapa"></div>
 <input type="file" id="fileMap" multiple hidden>
 
-<!-- Buscador -->
 <header class="top">
   <form id="searchForm" class="search" role="search">
-    <input id="q" type="search" placeholder="Buscar dirección o lugar en Ecuador" autocomplete="off" aria-label="Buscar">
-    <button type="submit">Buscar</button>
-    <button type="button" id="btnFavs" aria-label="Favoritos">★</button>
-    <button type="button" id="btnTheme" aria-label="Cambiar tema">Auto</button>
-    <button type="button" id="btnMenu" aria-label="Menú: mapa sin conexión y rutas guardadas">☰</button>
+    <span class="si" data-i="search"></span>
+    <input id="q" type="text" inputmode="search" enterkeyhint="search" placeholder="¿A dónde vamos?" autocomplete="off" aria-label="Buscar lugar o dirección">
+    <button type="button" id="qClear" class="ib flat" aria-label="Borrar" data-i="x" hidden></button>
+    <button type="button" id="btnFavs" class="ib flat" aria-label="Favoritos" data-i="star"></button>
+    <button type="button" id="btnMenu" class="ib flat" aria-label="Ajustes" data-i="gear"></button>
   </form>
   <ul id="list" class="list" hidden></ul>
 </header>
 
-<!-- HUD: siguiente giro -->
 <section id="turn" class="turn" hidden aria-live="polite">
   <div id="turnIcon" class="turn-icon" aria-hidden="true">↑</div>
-  <div class="turn-body">
-    <div id="turnDist" class="turn-dist">--</div>
-    <div id="turnText" class="turn-text">--</div>
-  </div>
-  <button id="btnMute" class="mute" aria-label="Activar o silenciar voz">🔊</button>
+  <div class="turn-body"><div id="turnDist" class="turn-dist">--</div><div id="turnText" class="turn-text">--</div></div>
+  <button id="btnMute" class="ib glass" aria-label="Voz" data-i="vol"></button>
 </section>
 
-<!-- HUD: velocidad y recentrar -->
 <div id="speed" class="speed"><b id="speedVal">0</b><small>km/h</small></div>
-<button id="btnLocate" class="fab" aria-label="Centrar en mi ubicación">◎</button>
+<div class="fabs">
+  <button id="btnTheme" class="ib fab" aria-label="Cambiar tema" data-i="moon"></button>
+  <button id="btnLocate" class="ib fab" aria-label="Mi ubicación" data-i="locate"></button>
+</div>
 
-<!-- Panel de ruta -->
 <footer id="sheet" class="sheet" hidden>
-  <div class="sheet-info">
+  <div class="grab"></div>
+  <div class="dest"><b id="sDest"></b><small id="sSub"></small></div>
+  <div class="metrics">
     <div><b id="sEta">--:--</b><small>llegada</small></div>
     <div><b id="sTime">--</b><small>restante</small></div>
     <div><b id="sDist">--</b><small>distancia</small></div>
   </div>
-  <div id="sDest" class="sheet-dest"></div>
-  <div class="sheet-actions">
+  <div class="actions">
     <button id="btnGo" class="primary">Iniciar</button>
-    <button id="btnDemo" title="Simula el recorrido sin GPS">Demo</button>
-    <button id="btnSave" aria-label="Guardar destino en favoritos">☆</button>
-    <button id="btnRouteSave" aria-label="Guardar ruta para usarla sin internet">💾</button>
-    <button id="btnCancel">Cancelar</button>
+    <button id="btnSave" class="ib" aria-label="Guardar destino en favoritos" data-i="star"></button>
+    <button id="btnRouteSave" class="ib" aria-label="Guardar ruta para usarla sin internet" data-i="save"></button>
+    <button id="btnCancel" class="ghost">Cancelar</button>
   </div>
 </footer>
+
+<div id="settings" class="overlay" hidden>
+  <div class="panel" role="dialog" aria-label="Ajustes">
+    <div class="phead"><img src="icons/logo.png" alt=""><div><b>GPS 593</b><small>Ajustes</small></div><button id="setClose" class="ib flat" aria-label="Cerrar" data-i="x"></button></div>
+    <h3>Apariencia</h3>
+    <div class="group"><div class="row"><span>Tema</span><div id="segTheme" class="seg"><button data-v="auto">Auto</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button></div></div></div>
+    <h3>Navegación</h3>
+    <div class="group">
+      <div class="row"><span>Guía por voz</span><button id="tgVoice" class="sw" role="switch" aria-checked="true"></button></div>
+      <div class="row"><span>Mantener la pantalla encendida</span><button id="tgAwake" class="sw" role="switch" aria-checked="true"></button></div>
+      <div class="row"><span>Alerta de velocidad</span><button id="tgAlert" class="sw" role="switch" aria-checked="false"></button></div>
+      <div class="row" id="rowLimit" hidden><span>Mi límite</span><div class="step"><button id="limDown" aria-label="Menos">−</button><b id="limVal">100</b><small>km/h</small><button id="limUp" aria-label="Más">+</button></div></div>
+    </div>
+    <h3>Sin conexión</h3>
+    <div class="group">
+      <div class="row col"><span>Mapa</span><small id="offMap"></small></div>
+      <div class="row col"><span>Rutas y búsqueda</span><small id="offGraph"></small></div>
+      <div class="row" id="rowRemember"><span>Recordar los archivos en este dispositivo</span><button id="tgRemember" class="sw" role="switch" aria-checked="true"></button></div>
+      <button id="btnUsb" class="rowbtn" hidden>Buscar en el pendrive</button>
+      <button id="btnLoad" class="rowbtn">Elegir archivos (.pmtiles / .g593)</button>
+      <button id="btnOnline" class="rowbtn">Usar el mapa en línea</button>
+      <button id="btnForget" class="rowbtn danger">Borrar los archivos guardados</button>
+    </div>
+    <h3>Mis lugares</h3>
+    <div class="group"><button id="rowFavs" class="rowbtn">Favoritos</button><button id="rowRoutes" class="rowbtn">Rutas guardadas</button></div>
+    <h3>Acerca de</h3>
+    <div class="group"><button id="rowDiag" class="rowbtn">Diagnóstico del dispositivo</button><div class="row col"><small>GPS 593 · sin anuncios ni rastreo en segundo plano · mapas © OpenStreetMap</small></div></div>
+  </div>
+</div>
 
 <div id="toast" class="toast" role="status" hidden></div>
 
@@ -72,9 +99,9 @@ window.onerror = function (m, src, line) {
 <script src="lib/leaflet.js"></script>
 <script src="lib/pmtiles.js"></script>
 <script src="lib/protomaps-leaflet.js"></script>
-<script src="offline.js?v=7"></script>
-<script src="routing.js?v=7"></script>
-<script src="config.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="offline.js?v=8"></script>
+<script src="routing.js?v=8"></script>
+<script src="config.js?v=8"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
