@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#1d5a9e">
 <link rel="stylesheet" href="lib/leaflet.css">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <!-- Filtro del modo oscuro: invierte el mapa y lo lleva a azul marino (no negro) -->
@@ -66,6 +66,7 @@
       <div class="row"><span>Guía por voz</span><button id="tgVoice" class="sw" role="switch" aria-checked="true"></button></div>
       <div class="row"><span>Mantener la pantalla encendida</span><button id="tgAwake" class="sw" role="switch" aria-checked="true"></button></div>
       <div class="row"><span>Alerta de velocidad</span><button id="tgAlert" class="sw" role="switch" aria-checked="false"></button></div>
+      <button id="btnVoiceTest" class="rowbtn">Probar la voz</button>
       <div class="row" id="rowLimit" hidden><span>Mi límite</span><div class="step"><button id="limDown" aria-label="Menos">−</button><b id="limVal">100</b><small>km/h</small><button id="limUp" aria-label="Más">+</button></div></div>
     </div>
     <h3>Sin conexión</h3>
@@ -89,6 +90,14 @@
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script>
+/* WebView antiguos (anteriores a Chrome 100) no tienen AbortSignal.throwIfAborted, que usa la librería de mapas */
+if (typeof AbortSignal !== 'undefined' && !AbortSignal.prototype.throwIfAborted) {
+  AbortSignal.prototype.throwIfAborted = function () {
+    if (this.aborted) { var e = this.reason; if (!e) { e = new Error('Aborted'); e.name = 'AbortError'; } throw e; }
+  };
+}
+</script>
+<script>
 /* Diagnóstico: registra errores (también promesas y console.error) y muestra los de carga en una franja roja */
 window.GPSL_LOG = [];
 function gl(m) { GPSL_LOG.push(new Date().toLocaleTimeString() + ' ' + m); if (GPSL_LOG.length > 60) GPSL_LOG.shift(); }
@@ -104,9 +113,9 @@ var _ce = console.error; console.error = function () { try { gl('console.error '
 <script src="lib/leaflet.js"></script>
 <script src="lib/pmtiles.js"></script>
 <script src="lib/protomaps-leaflet.js"></script>
-<script src="offline.js?v=9"></script>
-<script src="routing.js?v=9"></script>
-<script src="config.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="offline.js?v=11"></script>
+<script src="routing.js?v=11"></script>
+<script src="config.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

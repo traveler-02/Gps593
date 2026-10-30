@@ -193,7 +193,7 @@
     return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min';
   };
   const fmtClock = sec => new Date(Date.now() + sec * 1000)
-    .toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+    .toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   g.Routing = { geocode, fetchRoute, restore, progress, pointAt, haversine, bearing, fmtDist, fmtTime, fmtClock };
 })(typeof window !== 'undefined' ? window : globalThis);

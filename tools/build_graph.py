@@ -12,6 +12,8 @@ PENALTY = {'service': 2.0, 'living_street': 1.5}          # desincentiva atajos 
 PLACE = {'city': 0, 'town': 1, 'village': 2, 'suburb': 3, 'neighbourhood': 3, 'hamlet': 4}
 AMENITY = {'fuel': 'gasolinera', 'hospital': 'hospital', 'clinic': 'clínica', 'pharmacy': 'farmacia', 'police': 'policía'}
 
+NO_SERVICE = '--sin-servicio' in sys.argv                    # grafo más liviano: sin calles de servicio
+
 def hav(a, b):
     p1, p2 = math.radians(a[0]), math.radians(b[0])
     h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(b[1] - a[1]) / 2) ** 2
@@ -34,7 +36,7 @@ class Reader(osmium.SimpleHandler):
         elif a in AMENITY: s.places.append([f'{nm} ({AMENITY[a]})', n.location.lat, n.location.lon, 5])
     def way(s, w):
         t = w.tags; hw = t.get('highway')
-        if hw not in SPEED: return
+        if hw not in SPEED or (hw == 'service' and NO_SERVICE): return
         if t.get('access') in ('no', 'private') and t.get('motor_vehicle') not in ('yes', 'designated'): return
         if t.get('motor_vehicle') in ('no', 'private') or t.get('motorcar') in ('no', 'private'): return
         if hw == 'service' and t.get('service') in ('parking_aisle', 'driveway'): return

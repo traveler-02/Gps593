@@ -167,16 +167,32 @@
 
   /* ---------- Voz ---------- */
   const Voice = {
-    ok: 'speechSynthesis' in window,
-    say(text) {
-      if (!this.ok || !cfg().voice) return;
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text); u.lang = 'es-EC';
-      const v = speechSynthesis.getVoices().find(x => /^es/i.test(x.lang)); if (v) u.voice = v;
-      speechSynthesis.speak(u);
+    ok: 'speechSynthesis' in window, pick: null, cur: null,
+    voice() {                                                                               // mejor voz en español disponible
+      if (this.pick) return this.pick;
+      const vs = speechSynthesis.getVoices();
+      for (const l of ['es-EC', 'es-419', 'es-US', 'es-MX', 'es-CO', 'es-ES']) {
+        const v = vs.find(x => x.lang.replace('_', '-') === l); if (v) return (this.pick = v);
+      }
+      return (this.pick = vs.find(x => /^es/i.test(x.lang)) || null);
     },
-    unlock() { if (this.ok) speechSynthesis.speak(new SpeechSynthesisUtterance('')); }
+    say(text, force) {
+      if (!this.ok || (!force && !cfg().voice)) return;
+      try {
+        if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text), v = this.voice();
+        u.lang = v ? v.lang : 'es-ES'; if (v) u.voice = v;
+        u.onerror = e => logd('voz error: ' + (e.error || '?'));
+        this.cur = u;                                                                       // evita que el navegador la descarte
+        logd('voz: ' + text);
+        setTimeout(() => { try { speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) { logd('voz: ' + e.message); } }, 150);
+      } catch (e) { logd('voz: ' + e.message); }
+    },
+    unlock() { if (this.ok) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* sin voz */ } } },
+    info() { return this.ok ? `${speechSynthesis.getVoices().length} voces · ${this.voice() ? this.voice().lang : 'ninguna en español'}` : 'no disponible en este navegador'; }
   };
+  if (Voice.ok) speechSynthesis.onvoiceschanged = () => { Voice.pick = null; };
+
   const paintMute = () => { $('btnMute').innerHTML = svg(cfg().voice ? 'vol' : 'mute'); };
   $('btnMute').onclick = () => { setCfg({ voice: !cfg().voice }); paintMute(); if (Voice.ok) speechSynthesis.cancel(); };
 
@@ -409,6 +425,7 @@
   $('btnUsb').onclick = async () => { await usbScan(true); renderSettings(); };
   $('btnOnline').onclick = () => { pm = null; $('fileMap').value = ''; setBase(); renderSettings(); };
   $('btnForget').onclick = async () => { try { await opfsClear(); } catch (e) { toast('No se pudo borrar.'); } };
+  $('btnVoiceTest').onclick = () => { Voice.say('Hola. Esta es la guía de voz de GPS 593.', true); toast('Voz: ' + Voice.info(), 6000); };
   $('rowFavs').onclick = () => { closeSettings(); showList(favs(), true); };
   $('rowRoutes').onclick = () => { closeSettings(); showRoutes(); };
   $('rowDiag').onclick = () => {
@@ -416,7 +433,7 @@
     const lines = [`WebView Chrome ${v || '?'}${NATIVE ? ' · app Android' : ''}${v && v < 80 ? ' (antigua)' : ''}`,
       `Mapa: ${pm ? pm.name + ' ' + mb(pm.size || 0) : 'en línea'}`,
       `Rutas: ${Offline.ready() ? (graphInfo ? graphInfo.name + ' ' + mb(graphInfo.size) : 'cargadas') : 'no cargadas'}`,
-      `Internet: ${navigator.onLine ? 'sí' : 'no'}`].concat((window.GPSL_LOG || []).slice(-12));
+      `Internet: ${navigator.onLine ? 'sí' : 'no'}`, `Voz: ${Voice.info()}`].concat((window.GPSL_LOG || []).slice(-12));
     const box = $('diagLog'); box.textContent = lines.join('\n'); box.hidden = false;
   };
 
