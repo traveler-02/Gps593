@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#1d5a9e">
 <link rel="stylesheet" href="lib/leaflet.css">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <!-- Filtro del modo oscuro: invierte el mapa y lo lleva a azul marino (no negro) -->
@@ -81,27 +81,32 @@
     <h3>Mis lugares</h3>
     <div class="group"><button id="rowFavs" class="rowbtn">Favoritos</button><button id="rowRoutes" class="rowbtn">Rutas guardadas</button></div>
     <h3>Acerca de</h3>
-    <div class="group"><button id="rowDiag" class="rowbtn">Diagnóstico del dispositivo</button><div class="row col"><small>GPS 593 · sin anuncios ni rastreo en segundo plano · mapas © OpenStreetMap</small></div></div>
+    <div class="group"><button id="rowDiag" class="rowbtn">Diagnóstico del dispositivo</button>
+      <pre id="diagLog" class="logbox" hidden></pre><div class="row col"><small>GPS 593 · sin anuncios ni rastreo en segundo plano · mapas © OpenStreetMap</small></div></div>
   </div>
 </div>
 
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script>
-/* Diagnóstico: muestra los errores de JavaScript en pantalla (se puede borrar cuando todo funcione) */
+/* Diagnóstico: registra errores (también promesas y console.error) y muestra los de carga en una franja roja */
+window.GPSL_LOG = [];
+function gl(m) { GPSL_LOG.push(new Date().toLocaleTimeString() + ' ' + m); if (GPSL_LOG.length > 60) GPSL_LOG.shift(); }
 window.onerror = function (m, src, line) {
+  var t = 'ERROR: ' + m + ' (' + String(src || '').split('/').pop() + ':' + line + ')'; gl(t);
   var d = document.createElement('pre');
   d.style.cssText = 'position:fixed;z-index:99;bottom:0;left:0;right:0;margin:0;padding:8px;background:#fee;color:#900;font:12px monospace;white-space:pre-wrap';
-  d.textContent = 'ERROR: ' + m + ' (' + String(src || '').split('/').pop() + ':' + line + ')';
-  document.body.appendChild(d);
+  d.textContent = t; document.body.appendChild(d);
 };
+window.addEventListener('unhandledrejection', function (e) { gl('PROMESA: ' + ((e.reason && e.reason.message) || e.reason)); });
+var _ce = console.error; console.error = function () { try { gl('console.error ' + Array.prototype.slice.call(arguments).join(' ').slice(0, 200)); } catch (x) {} _ce.apply(console, arguments); };
 </script>
 <script src="lib/leaflet.js"></script>
 <script src="lib/pmtiles.js"></script>
 <script src="lib/protomaps-leaflet.js"></script>
-<script src="offline.js?v=8"></script>
-<script src="routing.js?v=8"></script>
-<script src="config.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="offline.js?v=9"></script>
+<script src="routing.js?v=9"></script>
+<script src="config.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

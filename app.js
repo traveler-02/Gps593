@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const R = Routing, $ = id => document.getElementById(id);
+  const logd = m => { (window.GPSL_LOG = window.GPSL_LOG || []).push(new Date().toLocaleTimeString() + ' ' + m); };
   const clear = el => { while (el.firstChild) el.removeChild(el.firstChild); };            // compatible con WebView antiguos
   const NATIVE = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
 
@@ -38,7 +39,7 @@
     watchId: null, off: 0, lastReroute: 0, lastWarn: 0, spoken: {}, ctrl: null, sctrl: null, wl: null
   };
   const layers = {};
-  let car = null, toastTimer, baseLayer = null, pm = null, lastScan = 0;                   // pm = mapa sin conexión activo
+  let car = null, toastTimer, baseLayer = null, pm = null, lastScan = 0, graphInfo = null;                   // pm = mapa sin conexión activo
 
   /* ---------- Avisos ---------- */
   function toast(msg, ms) {
@@ -54,11 +55,15 @@
     getKey() { return this.path; }
     async getBytes(offset, length) { const r = await usb('read', { path: this.path, offset, length }); return { data: b64(r.data).buffer }; }
   }
-  async function readWhole(path, size) {                                                    // .g593 completo, trozos de 4 MB
-    const out = new Uint8Array(size);
-    for (let off = 0; off < size; off += 4194304) {
-      const r = await usb('read', { path, offset: off, length: Math.min(4194304, size - off) });
+  async function readWhole(path, size, onProgress) {                                        // .g593 completo, trozos de 2 MB
+    let out;
+    try { out = new Uint8Array(size); } catch (e) { throw new Error('memoria insuficiente para ' + Math.round(size / 1048576) + ' MB'); }
+    const CH = 2097152;
+    for (let off = 0; off < size; off += CH) {
+      const r = await usb('read', { path, offset: off, length: Math.min(CH, size - off) });
       out.set(b64(r.data), off);
+      if (onProgress) onProgress(Math.round(Math.min(off + CH, size) * 100 / size));
+      await new Promise(res => setTimeout(res, 0));                                         // deja respirar a la pantalla
     }
     return out.buffer;
   }
@@ -67,12 +72,11 @@
   const map = L.map('map', { zoomControl: false }).setView([-1.83, -78.18], 7);
   const CARTO_KEY = (window.GPSL_CONFIG || {}).CARTO_KEY || '';
   function setBase() {                                                                      // en línea (CARTO) o vectorial (.pmtiles)
-    if (baseLayer) baseLayer.remove();
-    baseLayer = pm
+    const old = baseLayer, next = pm
       ? protomapsL.leafletLayer({ url: pm.source, lang: 'es', maxDataZoom: pm.maxZoom, flavor: 'light', attribution: '© OpenStreetMap, Protomaps' })
       : L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY,
           { subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap, © CARTO' });
-    baseLayer.addTo(map);
+    next.addTo(map); baseLayer = next; if (old) old.remove();
   }
   map.on('dragstart', () => { state.follow = false; });
   map.on('click', e => {
@@ -85,21 +89,28 @@
 
   /* ---------- Archivos sin conexión ---------- */
   async function loadOfflineMap(file, quiet) {
+    const before = pm;
     try {
       const source = new pmtiles.PMTiles(file.native ? new NativeSource(file.native) : new pmtiles.FileSource(file));
       const h = await source.getHeader();                                                   // falla si no es un .pmtiles válido
-      pm = { name: file.name, source, maxZoom: h.maxZoom };
+      await source.getZxy(h.minZoom, 0, 0);                                                 // prueba: leer y descomprimir un tile
+      pm = { name: file.name, size: file.size, source, maxZoom: h.maxZoom };
       setBase();
       if (!quiet) map.fitBounds([[h.minLat, h.minLon], [h.maxLat, h.maxLon]]);
+      logd(`mapa ok: ${file.name} z${h.minZoom}-${h.maxZoom}`);
       toast('Mapa sin conexión cargado: ' + file.name);
-    } catch (e) { toast('No se pudo leer ese mapa. Debe ser un archivo .pmtiles.'); }
+    } catch (e) {
+      pm = before; try { setBase(); } catch (e2) { logd('setBase: ' + e2.message); }
+      logd('mapa error: ' + ((e && e.message) || e));
+      toast('No se pudo usar el mapa sin conexión (' + ((e && e.message) || 'error') + '). Se mantiene el mapa en línea.', 8000);
+    }
   }
   async function loadGraph(file) {
     try {
       toast('Cargando datos de rutas…', 8000);
-      const i = await Offline.load(file);
+      const i = await Offline.load(file); graphInfo = { name: file.name, size: file.size || 0 }; logd('rutas ok: ' + file.name);
       toast(`Rutas y búsqueda sin conexión listas (${i.places.toLocaleString('es-EC')} lugares)`);
-    } catch (e) { toast('No se pudo leer ese archivo: ' + e.message); }
+    } catch (e) { logd('rutas error: ' + e.message); toast('No se pudieron cargar las rutas: ' + e.message, 8000); }
   }
   async function usbScan(manual) {                                                          // APK: busca ecuador.pmtiles y .g593
     lastScan = Date.now();
@@ -109,9 +120,10 @@
       const seen = {}, list = (await usb('find')).files.filter(f => { const k = f.name + f.size; return seen[k] ? false : (seen[k] = true); });
       const pick = ext => list.filter(f => f.name.toLowerCase().endsWith(ext)).sort((x, y) => y.size - x.size)[0];
       const m = pick('.pmtiles'), g = pick('.g593');
+      logd('pendrive: ' + (m ? m.name + ' ' + Math.round(m.size / 1048576) + ' MB' : 'sin .pmtiles') + ' · ' + (g ? g.name + ' ' + Math.round(g.size / 1048576) + ' MB' : 'sin .g593'));
       if (!m && !g) { if (manual) toast('No se encontraron archivos .pmtiles ni .g593.', 6000); return false; }
       if (m && !pm) await loadOfflineMap({ name: m.name, size: m.size, native: m.path }, true);
-      if (g && !Offline.ready()) await loadGraph({ name: g.name, size: g.size, arrayBuffer: () => readWhole(g.path, g.size) });
+      if (g && !Offline.ready()) await loadGraph({ name: g.name, size: g.size, arrayBuffer: () => readWhole(g.path, g.size, p => toast('Cargando rutas y búsqueda… ' + p + '%', 4000)) });
       return true;
     } catch (e) { if (manual) toast('No se pudo leer el almacenamiento: ' + (e.message || e)); return false; }
   }
@@ -400,9 +412,14 @@
   $('rowFavs').onclick = () => { closeSettings(); showList(favs(), true); };
   $('rowRoutes').onclick = () => { closeSettings(); showRoutes(); };
   $('rowDiag').onclick = () => {
-    const v = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1];
-    toast(`WebView Chrome ${v || '?'}${NATIVE ? ' · app Android' : ''}${v && v < 80 ? ' · antigua: puede fallar el mapa' : ''}`, 7000);
+    const v = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1], mb = n => Math.round(n / 1048576) + ' MB';
+    const lines = [`WebView Chrome ${v || '?'}${NATIVE ? ' · app Android' : ''}${v && v < 80 ? ' (antigua)' : ''}`,
+      `Mapa: ${pm ? pm.name + ' ' + mb(pm.size || 0) : 'en línea'}`,
+      `Rutas: ${Offline.ready() ? (graphInfo ? graphInfo.name + ' ' + mb(graphInfo.size) : 'cargadas') : 'no cargadas'}`,
+      `Internet: ${navigator.onLine ? 'sí' : 'no'}`].concat((window.GPSL_LOG || []).slice(-12));
+    const box = $('diagLog'); box.textContent = lines.join('\n'); box.hidden = false;
   };
+
 
   /* ---------- Botones principales ---------- */
   $('btnGo').onclick = () => { Voice.unlock(); startNav(); startWatch(); };
