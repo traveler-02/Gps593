@@ -40,3 +40,10 @@ y sin vías tipo `track` (caminos rurales sin asfaltar). OSM puede tener huecos 
   si no hay resultados, prueba también con Nominatim. Lo que no esté mapeado en OpenStreetMap no aparecerá.
 - En el navegador, los archivos .pmtiles/.g593 elegidos una vez se guardan en el almacenamiento privado de la app
   y se cargan solos en cada inicio (se pueden borrar desde Ajustes). En el APK se buscan solos en el pendrive.
+
+## Publicar en Google Play (resumen)
+- Límites de Google: módulo base 200 MB; cada paquete de activos hasta 1,5 GB (total 4 GB). Los mapas (~210 MB)
+  caben como paquete de activos o se descargan dentro de la app desde un servidor propio.
+- Play exige un nivel de API reciente (targetSdk): la versión de Play no puede usar el truco de almacenamiento
+  clásico del APK para radios (targetSdk 29). Hacen falta dos variantes: «radio» (APK directo, pendrive) y «Play».
+- Servicios públicos (OSRM, Nominatim, Photon, CARTO) son de demostración: para publicar, alojar los propios o ir 100 % sin conexión.

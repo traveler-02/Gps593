@@ -34,6 +34,8 @@ public class UsbFilesPlugin extends Plugin {
     private LocationManager lm;
     private LocationListener listener;
     private volatile Location last;
+    private volatile long lastRecv;   // cuándo llegó la última ubicación (reloj del sistema)
+    private volatile long seq;        // número de ubicaciones recibidas
 
     private boolean hasLocPermission() {
         return Build.VERSION.SDK_INT < 23
@@ -66,7 +68,9 @@ public class UsbFilesPlugin extends Plugin {
         listener = new LocationListener() {
             @Override public void onLocationChanged(Location l) {
                 Location prev = last;
-                if (prev == null || LocationManager.GPS_PROVIDER.equals(l.getProvider()) || l.getTime() - prev.getTime() > 10000) last = l;
+                if (prev == null || LocationManager.GPS_PROVIDER.equals(l.getProvider()) || l.getTime() - prev.getTime() > 10000) {
+                    last = l; lastRecv = SystemClock.elapsedRealtime(); seq++;
+                }
             }
             @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
             @Override public void onProviderEnabled(String provider) { }
@@ -112,7 +116,11 @@ public class UsbFilesPlugin extends Plugin {
             r.put("speed", l.hasSpeed() ? (double) l.getSpeed() : -1.0);
             r.put("bearing", l.hasBearing() ? (double) l.getBearing() : -1.0);
             r.put("time", l.getTime());
-            r.put("age", (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1000000L);
+            long age;
+            if (l == last) age = SystemClock.elapsedRealtime() - lastRecv;
+            else age = l.getElapsedRealtimeNanos() > 0 ? (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1000000L : -1L;
+            r.put("age", age);
+            r.put("seq", l == last ? seq : 0L);
             r.put("provider", String.valueOf(l.getProvider()));
         }
         call.resolve(r);

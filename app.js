@@ -276,9 +276,13 @@
     if (NATIVE) { await nativePoll(true); return state.pos; }
     return new Promise(res => {
       if (!navigator.geolocation) return res(null);
-      navigator.geolocation.getCurrentPosition(pp => { onFix(pp); res(state.pos); },
-        e => { logd('geo: ' + e.code + ' ' + e.message); toast(geoMsg(e), 7000); res(null); },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+      const ok = pp => { onFix(pp); res(state.pos); };
+      navigator.geolocation.getCurrentPosition(ok, e => {
+        logd('geo (GPS): ' + e.code + ' ' + e.message);
+        if (e.code === 1) { toast(geoMsg(e), 7000); return res(null); }
+        navigator.geolocation.getCurrentPosition(ok, e2 => { logd('geo (red): ' + e2.code + ' ' + e2.message); toast(geoMsg(e2), 7000); res(null); },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 });                // plan B: ubicación por red/wifi, como Google Maps
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
     });
   }
   async function computeRoute(from, reroute) {
@@ -316,6 +320,7 @@
     state.watchId = navigator.geolocation.watchPosition(onFix,
       e => { logd('geo: ' + e.code + ' ' + e.message); if (Date.now() - lastGeoToast > 20000) { lastGeoToast = Date.now(); toast(geoMsg(e), 7000); } },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+    if (!state.pos) navigator.geolocation.getCurrentPosition(onFix, () => {}, { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 });   // primera posición rápida
   }
   function stopWatch() { if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; } }
   function stopNav() {
@@ -331,7 +336,7 @@
   });
   function onFix(pp) {
     const c = pp.coords, p = [c.latitude, c.longitude], t = pp.timestamp || Date.now();
-    if (state.pos && c.accuracy > 100) return;
+    if (state.pos && c.accuracy > 100 && Date.now() - (state.lastFixAt || 0) < 10000) return;   // ignora lecturas imprecisas si hay una mejor reciente
     let v = c.speed;
     if ((v === null || isNaN(v)) && state.last) { const dt = (t - state.last.t) / 1000; if (dt > 0.5) v = R.haversine(state.last.p, p) / dt; }
     v = (v === null || isNaN(v)) ? 0 : v;
@@ -381,14 +386,16 @@
   /* ---------- Ubicación: en la radio (APK) se lee el GPS de Android; en el navegador, la API del navegador ---------- */
   const geoMsg = e => e.code === 1 ? 'Permiso de ubicación denegado. Actívalo en Ajustes de Android > Aplicaciones > GPS 593 > Permisos.'
     : e.code === 3 ? 'El GPS tarda en responder: ponte a cielo abierto y espera un momento.' : 'No se pudo obtener la ubicación.';
-  let locTimer = null, lastLocTime = 0, lastGeoToast = 0;
+  let locTimer = null, lastLocKey = '', lastGeoToast = 0, rawLogged = 0, lastNative = null;
   async function nativePoll(first) {
     try {
       const p = await usb('locationLast');
+      if (rawLogged < 3) { rawLogged++; logd('fix nativo: ' + JSON.stringify(p)); }
       if (!p.has) return false;
-      if (p.time === lastLocTime) return true;
-      if (p.age > (first ? 600000 : 30000)) return false;                                   // ubicación demasiado vieja
-      lastLocTime = p.time;
+      const key = [p.seq, p.time, p.lat, p.lon].join();
+      if (key === lastLocKey) return true;                                                  // misma lectura de antes
+      if (p.age >= 0 && p.age > (first ? 600000 : 30000)) return false;                     // vieja (age < 0 = el GPS no informa la hora)
+      lastLocKey = key; lastNative = p;
       onFix({ coords: { latitude: p.lat, longitude: p.lon, accuracy: p.acc, speed: p.speed >= 0 ? p.speed : null, heading: p.bearing >= 0 ? p.bearing : null }, timestamp: Date.now() });
       return true;
     } catch (e) { return false; }
@@ -466,7 +473,7 @@
       `Mapa: ${pm ? pm.name + ' ' + mb(pm.size || 0) : 'en línea'}`,
       `Rutas: ${Offline.ready() ? (graphInfo ? graphInfo.name + ' ' + mb(graphInfo.size) : 'cargadas') : 'no cargadas'}`,
       `Internet: ${navigator.onLine ? 'sí' : 'no'}`, `Voz: ${Voice.info()}`,
-      `GPS: ${state.lastFixAt ? Math.round((Date.now() - state.lastFixAt) / 1000) + ' s desde el último fix' : 'sin posición todavía'}${NATIVE ? ' (GPS de Android)' : ' (navegador)'}`].concat((window.GPSL_LOG || []).slice(-12));
+      `GPS: ${state.lastFixAt ? Math.round((Date.now() - state.lastFixAt) / 1000) + ' s desde el último fix' : 'sin posición todavía'}${NATIVE ? ' (GPS de Android' + (lastNative ? ': ' + lastNative.provider + ', ±' + Math.round(lastNative.acc) + ' m' : '') + ')' : ' (navegador)'}`].concat((window.GPSL_LOG || []).slice(-12));
     const box = $('diagLog'); box.textContent = lines.join('\n'); box.hidden = false;
   };
 

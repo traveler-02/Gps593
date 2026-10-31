@@ -22,18 +22,24 @@ vg = A / 'variables.gradle'; v = vg.read_text(encoding='utf-8')
 v2 = re.sub(r'targetSdkVersion\s*=\s*\d+', 'targetSdkVersion = 29', v); assert v2 != v
 vg.write_text(v2, encoding='utf-8')
 
-# 4) Íconos y pantalla de inicio con el logo de GPS 593
+# 4) Íconos y pantalla de inicio con el logo de GPS 593 (ícono cuadrado redondeado; sin ícono adaptable)
 logo = Image.open('icons/logo.png').convert('RGBA')
 def fit(canvas, frac, bg=(0, 0, 0, 0)):
     c = Image.new('RGBA', canvas, bg); k = frac * min(canvas) / max(logo.size)
     r = logo.resize((max(1, int(logo.width * k)), max(1, int(logo.height * k))), Image.LANCZOS)
     c.paste(r, ((canvas[0] - r.width) // 2, (canvas[1] - r.height) // 2), r); return c
+def circle(canvas):
+    from PIL import ImageDraw
+    c = fit(canvas, .94); m = Image.new('L', canvas, 0); ImageDraw.Draw(m).ellipse((0, 0, canvas[0] - 1, canvas[1] - 1), fill=255)
+    c.putalpha(Image.composite(c.getchannel('A'), Image.new('L', canvas, 0), m)); return c
 res = main / 'res'; n = 0
 for d in res.glob('mipmap-*dpi'):
-    for name, frac, bg in (('ic_launcher.png', .9, (255, 255, 255, 255)), ('ic_launcher_round.png', .78, (255, 255, 255, 255)),
-                           ('ic_launcher_foreground.png', .56, (0, 0, 0, 0))):
+    for name in ('ic_launcher.png', 'ic_launcher_round.png'):
         p = d / name
-        if p.exists(): fit(Image.open(p).size, frac, bg).save(p); n += 1
+        if p.exists():
+            size = Image.open(p).size
+            (circle(size) if name.endswith('_round.png') else fit(size, 1.0)).save(p); n += 1
+for x in (res / 'mipmap-anydpi-v26').glob('*.xml'): x.unlink()                              # usa los PNG de arriba en todas las versiones
 for p in res.glob('drawable*/splash.png'):
     fit(Image.open(p).size, .3, (255, 255, 255, 255)).convert('RGB').save(p); n += 1
 print('íconos/pantallas actualizados:', n)
