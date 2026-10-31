@@ -118,3 +118,4 @@ body.nav #btnCancel { flex: 1; height: 52px; background: var(--danger); color: #
 .leaflet-popup-content button { color: #0f1b2d; background: #eef3fb; padding: 8px 14px; border-radius: 10px; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .car-rot, .sw, .sw::after { transition: none; } }
 .logbox { margin: 0; padding: 12px 16px; background: var(--chip); font: 12px/1.45 monospace; white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto; -webkit-user-select: text; user-select: text; }
+.speed.nogps { opacity: .65; } .speed.nogps b { color: var(--muted); }

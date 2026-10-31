@@ -271,11 +271,14 @@
     paintSummary(state.route.duration, state.route.distance); setNavUI(false);
     map.fitBounds(layers.line.getBounds(), { paddingTopLeft: [24, 90], paddingBottomRight: [24, 300] });
   }
-  function getFix() {
+  async function getFix() {
+    if (state.pos) return state.pos;
+    if (NATIVE) { await nativePoll(true); return state.pos; }
     return new Promise(res => {
       if (!navigator.geolocation) return res(null);
-      navigator.geolocation.getCurrentPosition(pp => { onFix(pp); res(state.pos); }, () => res(null),
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
+      navigator.geolocation.getCurrentPosition(pp => { onFix(pp); res(state.pos); },
+        e => { logd('geo: ' + e.code + ' ' + e.message); toast(geoMsg(e), 7000); res(null); },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
     });
   }
   async function computeRoute(from, reroute) {
@@ -311,18 +314,18 @@
   function startWatch() {
     if (state.watchId !== null || !navigator.geolocation) return;
     state.watchId = navigator.geolocation.watchPosition(onFix,
-      e => toast(e.code === 1 ? 'Permiso de ubicación denegado.' : 'No se pudo obtener la ubicación.'),
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+      e => { logd('geo: ' + e.code + ' ' + e.message); if (Date.now() - lastGeoToast > 20000) { lastGeoToast = Date.now(); toast(geoMsg(e), 7000); } },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   }
   function stopWatch() { if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; } }
   function stopNav() {
     if (state.wl) { state.wl.release(); state.wl = null; }
-    stopWatch(); if (Voice.ok) speechSynthesis.cancel(); setNavUI(false);
+    if (Voice.ok) speechSynthesis.cancel(); setNavUI(false);
   }
   document.addEventListener('visibilitychange', () => {                                      // sin rastreo en segundo plano
-    if (document.hidden) stopWatch();
+    if (document.hidden) stopLocation();
     else {
-      if (state.nav) startWatch();
+      startLocation();
       if (NATIVE && !pm && Date.now() - lastScan > 5000) usbScan(false);                     // pendrive conectado mientras tanto
     }
   });
@@ -335,7 +338,7 @@
     state.speed = state.speed * 0.4 + v * 0.6;
     if (c.heading !== null && !isNaN(c.heading) && v > 1) state.heading = c.heading;
     else if (state.last && R.haversine(state.last.p, p) > 5) state.heading = R.bearing(state.last.p, p);
-    state.last = { p, t }; state.pos = p;
+    state.last = { p, t }; state.pos = p; state.lastFixAt = Date.now();
     const kmh = Math.round(state.speed * 3.6), over = cfg().alert && kmh > cfg().limit;
     $('speedVal').textContent = kmh; $('speed').classList.toggle('over', over);
     if (over && state.nav && Date.now() - state.lastWarn > 30000) { state.lastWarn = Date.now(); Voice.say('Reduce la velocidad'); }
@@ -374,6 +377,35 @@
     Voice.say(t === 2 ? step.text : `En ${TIERS[t]} metros, ${step.text[0].toLowerCase() + step.text.slice(1)}`);
   }
   function finish() { Voice.say('Has llegado a tu destino'); toast('Has llegado a tu destino'); stopNav(); clearRoute(); }
+
+  /* ---------- Ubicación: en la radio (APK) se lee el GPS de Android; en el navegador, la API del navegador ---------- */
+  const geoMsg = e => e.code === 1 ? 'Permiso de ubicación denegado. Actívalo en Ajustes de Android > Aplicaciones > GPS 593 > Permisos.'
+    : e.code === 3 ? 'El GPS tarda en responder: ponte a cielo abierto y espera un momento.' : 'No se pudo obtener la ubicación.';
+  let locTimer = null, lastLocTime = 0, lastGeoToast = 0;
+  async function nativePoll(first) {
+    try {
+      const p = await usb('locationLast');
+      if (!p.has) return false;
+      if (p.time === lastLocTime) return true;
+      if (p.age > (first ? 600000 : 30000)) return false;                                   // ubicación demasiado vieja
+      lastLocTime = p.time;
+      onFix({ coords: { latitude: p.lat, longitude: p.lon, accuracy: p.acc, speed: p.speed >= 0 ? p.speed : null, heading: p.bearing >= 0 ? p.bearing : null }, timestamp: Date.now() });
+      return true;
+    } catch (e) { return false; }
+  }
+  async function startLocation() {
+    if (!NATIVE) { startWatch(); return; }
+    if (document.hidden) return;
+    try {
+      const r = await usb('locationStart');
+      if (!r.granted) { toast('Concede el permiso de ubicación a GPS 593 en la ventana que aparece.', 7000); setTimeout(startLocation, 5000); return; }
+      logd(`ubicación nativa: gps=${r.gps} red=${r.network}`);
+      if (!r.gps && !r.network) toast('La ubicación de Android está desactivada. Actívala en los ajustes del sistema.', 9000);
+      clearInterval(locTimer); locTimer = setInterval(() => nativePoll(false), 1000);
+      nativePoll(true);
+    } catch (e) { logd('ubicación nativa falló: ' + (e.message || e)); startWatch(); }
+  }
+  function stopLocation() { stopWatch(); clearInterval(locTimer); locTimer = null; if (NATIVE) usb('locationStop').catch(() => {}); }
 
   /* ---------- Rutas guardadas (sirven sin internet) ---------- */
   $('btnRouteSave').onclick = () => {
@@ -433,7 +465,8 @@
     const lines = [`WebView Chrome ${v || '?'}${NATIVE ? ' · app Android' : ''}${v && v < 80 ? ' (antigua)' : ''}`,
       `Mapa: ${pm ? pm.name + ' ' + mb(pm.size || 0) : 'en línea'}`,
       `Rutas: ${Offline.ready() ? (graphInfo ? graphInfo.name + ' ' + mb(graphInfo.size) : 'cargadas') : 'no cargadas'}`,
-      `Internet: ${navigator.onLine ? 'sí' : 'no'}`, `Voz: ${Voice.info()}`].concat((window.GPSL_LOG || []).slice(-12));
+      `Internet: ${navigator.onLine ? 'sí' : 'no'}`, `Voz: ${Voice.info()}`,
+      `GPS: ${state.lastFixAt ? Math.round((Date.now() - state.lastFixAt) / 1000) + ' s desde el último fix' : 'sin posición todavía'}${NATIVE ? ' (GPS de Android)' : ' (navegador)'}`].concat((window.GPSL_LOG || []).slice(-12));
     const box = $('diagLog'); box.textContent = lines.join('\n'); box.hidden = false;
   };
 
@@ -443,13 +476,18 @@
   $('btnCancel').onclick = () => { stopNav(); clearRoute(); };
   $('btnLocate').onclick = async () => {
     state.follow = true;
-    if (state.watchId === null) await getFix();                                              // una sola lectura, sin vigilancia continua
+    await getFix();
     if (state.pos) map.setView(state.pos, Math.max(map.getZoom(), 16));
-    else toast('No se pudo obtener tu ubicación. Activa el GPS y concede el permiso.');
+    else { toast('Buscando tu ubicación… ponte a cielo abierto y espera unos segundos.', 6000); startLocation(); }
   };
 
   /* ---------- Inicio ---------- */
   paintIcons(); applyTheme(); paintMute(); setBase();
+  startLocation();                                                                           // velocímetro y posición desde el inicio
+  setInterval(() => {                                                                        // aviso visible si no hay GPS
+    const ok = state.lastFixAt && Date.now() - state.lastFixAt < 15000;
+    $('speed').classList.toggle('nogps', !ok); $('speed').querySelector('small').textContent = ok ? 'km/h' : 'sin GPS';
+  }, 2000);
   if (NATIVE) setTimeout(() => usbScan(false), 800);                                         // APK: carga lo que haya en el pendrive
   else { if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {}); if (cfg().remember) opfsLoad().catch(() => {}); }
 })();

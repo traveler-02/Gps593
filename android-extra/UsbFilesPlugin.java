@@ -1,8 +1,15 @@
 package ec.gps593.app;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Base64;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -23,6 +30,100 @@ public class UsbFilesPlugin extends Plugin {
     private static final Set<String> SKIP = new HashSet<>(Arrays.asList(
         "Android", "runtime", "user", "shell", "obb", "asec", "secure", "expand", "pass_through",
         "installer", "androidwritable", "LOST.DIR", "proc", "sys", "dev"));
+
+    private LocationManager lm;
+    private LocationListener listener;
+    private volatile Location last;
+
+    private boolean hasLocPermission() {
+        return Build.VERSION.SDK_INT < 23
+            || getContext().checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void stopUpdates() {
+        try { if (lm != null && listener != null) lm.removeUpdates(listener); } catch (Exception e) { /* nada */ }
+        listener = null;
+    }
+
+    @Override
+    protected void handleOnDestroy() { stopUpdates(); }
+
+    /** Empieza a recibir la ubicación del GPS de Android (pide el permiso si falta). */
+    @PluginMethod
+    public void locationStart(PluginCall call) {
+        JSObject r = new JSObject();
+        boolean ok = hasLocPermission();
+        r.put("granted", ok);
+        if (!ok) {
+            if (Build.VERSION.SDK_INT >= 23 && getActivity() != null) {
+                getActivity().requestPermissions(new String[] { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }, 594);
+            }
+            call.resolve(r);
+            return;
+        }
+        stopUpdates();
+        lm = (LocationManager) getContext().getSystemService(Context.LOCATION_SERVICE);
+        listener = new LocationListener() {
+            @Override public void onLocationChanged(Location l) {
+                Location prev = last;
+                if (prev == null || LocationManager.GPS_PROVIDER.equals(l.getProvider()) || l.getTime() - prev.getTime() > 10000) last = l;
+            }
+            @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
+            @Override public void onProviderEnabled(String provider) { }
+            @Override public void onProviderDisabled(String provider) { }
+        };
+        boolean gps = false, net = false;
+        try {
+            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, listener, Looper.getMainLooper());
+                gps = true;
+            }
+            if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000, 0, listener, Looper.getMainLooper());
+                net = true;
+            }
+        } catch (SecurityException e) {
+            r.put("granted", false);
+        }
+        r.put("gps", gps);
+        r.put("network", net);
+        call.resolve(r);
+    }
+
+    /** Última ubicación conocida (la más reciente que llegó del GPS o, si no hay, la guardada por Android). */
+    @PluginMethod
+    public void locationLast(PluginCall call) {
+        Location l = last;
+        if (l == null && hasLocPermission()) {
+            try {
+                LocationManager m = (LocationManager) getContext().getSystemService(Context.LOCATION_SERVICE);
+                l = m.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                if (l == null) l = m.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            } catch (SecurityException e) {
+                l = null;
+            }
+        }
+        JSObject r = new JSObject();
+        r.put("has", l != null);
+        if (l != null) {
+            r.put("lat", l.getLatitude());
+            r.put("lon", l.getLongitude());
+            r.put("acc", l.hasAccuracy() ? (double) l.getAccuracy() : 50.0);
+            r.put("speed", l.hasSpeed() ? (double) l.getSpeed() : -1.0);
+            r.put("bearing", l.hasBearing() ? (double) l.getBearing() : -1.0);
+            r.put("time", l.getTime());
+            r.put("age", (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1000000L);
+            r.put("provider", String.valueOf(l.getProvider()));
+        }
+        call.resolve(r);
+    }
+
+    /** Deja de recibir ubicación (al salir de la app). */
+    @PluginMethod
+    public void locationStop(PluginCall call) {
+        stopUpdates();
+        call.resolve();
+    }
 
     /** Pide el permiso de lectura de almacenamiento (Android 6+). */
     @PluginMethod

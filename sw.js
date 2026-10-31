@@ -1,5 +1,5 @@
 /* GPS 593 — service worker: red primero (siempre la versión nueva) y caché como respaldo sin internet */
-const CACHE = 'gps593-v11';
+const CACHE = 'gps593-v12';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'routing.js', 'offline.js', 'config.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon.png',
   'lib/leaflet.js', 'lib/leaflet.css', 'lib/pmtiles.js', 'lib/protomaps-leaflet.js'];
