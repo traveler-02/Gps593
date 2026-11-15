@@ -5,16 +5,21 @@ from PIL import Image
 
 A = pathlib.Path('android'); main = A / 'app' / 'src' / 'main'
 
-# 1) Código Java: actividad con el plugin UsbFiles
-dst = main / 'java' / 'ec' / 'gps593' / 'app'; dst.mkdir(parents=True, exist_ok=True)
-for f in ('MainActivity.java', 'UsbFilesPlugin.java'): shutil.copy(f'android-extra/{f}', dst / f)
+# 1) Código Java: actividad con el plugin UsbFiles (el paquete sale del appId de capacitor.config.json)
+import json
+app_id = json.load(open('capacitor.config.json'))['appId']
+dst = main / 'java' / pathlib.Path(*app_id.split('.')); dst.mkdir(parents=True, exist_ok=True)
+for f in ('MainActivity.java', 'UsbFilesPlugin.java'):
+    txt = open(f'android-extra/{f}', encoding='utf-8').read().replace('package ec.gps593.app;', f'package {app_id};')
+    (dst / f).write_text(txt, encoding='utf-8')
 
 # 2) Permisos y almacenamiento clásico (para leer el pendrive sin selector de archivos)
 mf = main / 'AndroidManifest.xml'; s = mf.read_text(encoding='utf-8')
 perms = ''.join(f'    <uses-permission android:name="android.permission.{p}" />\n'
                 for p in ('ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'READ_EXTERNAL_STORAGE', 'WAKE_LOCK'))
 assert '</manifest>' in s and '<application' in s
-s = s.replace('</manifest>', perms + '</manifest>').replace('<application', '<application android:requestLegacyExternalStorage="true"', 1)
+queries = '    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>\n'
+s = s.replace('</manifest>', perms + queries + '</manifest>').replace('<application', '<application android:requestLegacyExternalStorage="true"', 1)
 mf.write_text(s, encoding='utf-8')
 
 # 3) targetSdk 29: en Android 10 o menor (radios) mantiene el acceso clásico a /storage/XXXX

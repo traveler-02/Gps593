@@ -1,1 +1,1 @@
-{ "appId": "ec.gps593.app", "appName": "GPS 593", "webDir": "www", "server": { "androidScheme": "https" } }
+{ "appId": "ec.gps593.mini", "appName": "GPS593 mini", "webDir": "www", "server": { "androidScheme": "https" } }

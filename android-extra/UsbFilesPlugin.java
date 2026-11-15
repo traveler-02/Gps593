@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.speech.tts.TextToSpeech;
 import android.util.Base64;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -22,6 +23,7 @@ import java.io.RandomAccessFile;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 
 /** Lee archivos .pmtiles / .g593 directamente del pendrive o de la memoria, por rangos (sin copiarlos). */
@@ -36,6 +38,48 @@ public class UsbFilesPlugin extends Plugin {
     private volatile Location last;
     private volatile long lastRecv;   // cuándo llegó la última ubicación (reloj del sistema)
     private volatile long seq;        // número de ubicaciones recibidas
+    private TextToSpeech tts;
+    private volatile boolean ttsReady;
+    private volatile String pendingText;
+
+    private void initTts(final String first) {
+        pendingText = first;
+        if (tts != null || getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            tts = new TextToSpeech(getContext(), status -> {
+                if (status != TextToSpeech.SUCCESS) { ttsReady = false; return; }
+                Locale[] options = { new Locale("es", "EC"), new Locale("es", "MX"), new Locale("es", "US"), new Locale("es", "ES"), new Locale("es") };
+                for (Locale l : options) {
+                    if (tts.setLanguage(l) >= TextToSpeech.LANG_AVAILABLE) break;
+                }
+                ttsReady = true;
+                if (pendingText != null) { tts.speak(pendingText, TextToSpeech.QUEUE_FLUSH, null, "gps593"); pendingText = null; }
+            });
+        });
+    }
+
+    /** Dice un texto con la voz del sistema (la WebView de Android no trae síntesis de voz). */
+    @PluginMethod
+    public void speak(PluginCall call) {
+        String text = call.getString("text", "");
+        if (tts != null && ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "gps593");
+        else initTts(text);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void speakStop(PluginCall call) {
+        if (tts != null) tts.stop();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void ttsInfo(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("ready", ttsReady);
+        r.put("engine", tts != null ? String.valueOf(tts.getDefaultEngine()) : "");
+        call.resolve(r);
+    }
 
     private boolean hasLocPermission() {
         return Build.VERSION.SDK_INT < 23
@@ -48,7 +92,10 @@ public class UsbFilesPlugin extends Plugin {
     }
 
     @Override
-    protected void handleOnDestroy() { stopUpdates(); }
+    protected void handleOnDestroy() {
+        stopUpdates();
+        if (tts != null) { tts.shutdown(); tts = null; }
+    }
 
     /** Empieza a recibir la ubicación del GPS de Android (pide el permiso si falta). */
     @PluginMethod
@@ -148,45 +195,58 @@ public class UsbFilesPlugin extends Plugin {
         call.resolve(r);
     }
 
-    /** Busca *.pmtiles y *.g593 en /storage, /mnt/media_rw y /mnt (hasta 4 niveles). */
+    /** Busca *.pmtiles y *.g593: primero en Descargas y Documentos (6 niveles) y luego en /storage y /mnt (4 niveles). */
     @PluginMethod
     public void find(final PluginCall call) {
         new Thread(() -> {
             JSArray out = new JSArray();
+            JSArray denied = new JSArray();
             Set<String> seen = new HashSet<>();
-            ArrayDeque<Object[]> queue = new ArrayDeque<>();
-            for (String root : new String[] { "/storage", "/mnt/media_rw", "/mnt" }) queue.add(new Object[] { new File(root), 0 });
-            int visited = 0;
-            while (!queue.isEmpty() && visited < 4000) {
-                Object[] item = queue.poll();
-                File dir = (File) item[0];
-                int depth = (Integer) item[1];
-                String canon;
-                try { canon = dir.getCanonicalPath(); } catch (Exception e) { continue; }
-                if (!seen.add(canon)) continue;
-                File[] list = dir.listFiles();
-                if (list == null) continue;
-                visited++;
-                for (File f : list) {
-                    String name = f.getName();
-                    if (f.isDirectory()) {
-                        if (depth < 4 && !SKIP.contains(name)) queue.add(new Object[] { f, depth + 1 });
-                    } else {
-                        String low = name.toLowerCase();
-                        if (low.endsWith(".pmtiles") || low.endsWith(".g593")) {
-                            JSObject o = new JSObject();
-                            o.put("path", f.getPath());
-                            o.put("name", name);
-                            o.put("size", f.length());
-                            out.put(o);
-                        }
-                    }
-                }
+            int[] visited = { 0 };
+            String[] roots = { "/storage/emulated/0/Download", "/storage/emulated/0/Documents", "/storage", "/mnt/media_rw", "/mnt" };
+            int[] depths = { 6, 6, 4, 4, 4 };
+            for (int i = 0; i < roots.length; i++) {
+                File root = new File(roots[i]);
+                if (root.exists() && root.listFiles() == null) denied.put(roots[i]);
+                scan(root, depths[i], seen, out, visited);
             }
             JSObject res = new JSObject();
             res.put("files", out);
+            res.put("visited", visited[0]);
+            res.put("unreadable", denied);
             call.resolve(res);
         }).start();
+    }
+
+    private void scan(File start, int maxDepth, Set<String> seen, JSArray out, int[] visited) {
+        ArrayDeque<Object[]> queue = new ArrayDeque<>();
+        queue.add(new Object[] { start, 0 });
+        while (!queue.isEmpty() && visited[0] < 8000) {
+            Object[] item = queue.poll();
+            File dir = (File) item[0];
+            int depth = (Integer) item[1];
+            String canon;
+            try { canon = dir.getCanonicalPath(); } catch (Exception e) { continue; }
+            if (!seen.add(canon)) continue;
+            File[] list = dir.listFiles();
+            if (list == null) continue;
+            visited[0]++;
+            for (File f : list) {
+                String name = f.getName();
+                if (f.isDirectory()) {
+                    if (depth < maxDepth && !SKIP.contains(name)) queue.add(new Object[] { f, depth + 1 });
+                } else {
+                    String low = name.toLowerCase();
+                    if (low.endsWith(".pmtiles") || low.endsWith(".g593")) {
+                        JSObject o = new JSObject();
+                        o.put("path", f.getPath());
+                        o.put("name", name);
+                        o.put("size", f.length());
+                        out.put(o);
+                    }
+                }
+            }
+        }
     }
 
     /** Lee length bytes desde offset; devuelve base64. */

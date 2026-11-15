@@ -1,4 +1,4 @@
-# GPS 593
+# GPS593 mini
 
 Navegación paso a paso ligera para Ecuador: sin anuncios, sin analíticas y sin rastreo en segundo plano.
 HTML + CSS + JavaScript, Leaflet, OSRM y Nominatim. Las librerías van en `lib/` (no dependen de internet).
@@ -26,7 +26,7 @@ y sin vías tipo `track` (caminos rurales sin asfaltar). OSM puede tener huecos 
 
 ## Versión Android (APK)
 1. En el repo: Actions > "Compilar APK Android" > Run workflow (compila en un servidor de GitHub; no necesitas Android Studio).
-2. Descarga `gps593-debug.apk` de https://github.com/USUARIO/REPO/releases/tag/android e instálalo
+2. Descarga `gps593-mini-debug.apk` de https://github.com/USUARIO/REPO/releases/tag/android e instálalo
    (permite instalar apps de origen desconocido).
 3. Pon `ecuador.pmtiles` y `ecuador.g593` en el pendrive (en cualquier carpeta) y conéctalo a la radio.
 4. Al abrir GPS 593 busca y carga solos esos archivos. Si conectas el pendrive después: ☰ > "Buscar mapa y rutas en el pendrive".
@@ -47,3 +47,8 @@ y sin vías tipo `track` (caminos rurales sin asfaltar). OSM puede tener huecos 
 - Play exige un nivel de API reciente (targetSdk): la versión de Play no puede usar el truco de almacenamiento
   clásico del APK para radios (targetSdk 29). Hacen falta dos variantes: «radio» (APK directo, pendrive) y «Play».
 - Servicios públicos (OSRM, Nominatim, Photon, CARTO) son de demostración: para publicar, alojar los propios o ir 100 % sin conexión.
+
+## GPS593 mini
+Versión ligera para teléfonos antiguos. Por defecto usa mapa en línea; los mapas sin conexión son opcionales
+(Ajustes > Sin conexión). Muestra distancia y tiempo entre dos puntos (Desde / Hasta, o toca el mapa),
+flecha de ubicación que gira según el rumbo, historial de búsquedas recientes y favoritos, y voz del sistema Android.

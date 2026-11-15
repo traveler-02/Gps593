@@ -11,9 +11,10 @@
     get(k, d) { try { const v = localStorage.getItem('gpsl.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('gpsl.' + k, JSON.stringify(v)); return true; } catch (e) { return false; } }
   };
-  const favs = () => store.get('favs', []), routes = () => store.get('routes', []);
+  const favs = () => store.get('favs', []), routes = () => store.get('routes', []), recents = () => store.get('recents', []);
+  const addRecent = p => store.set('recents', [p].concat(recents().filter(x => !sameDest(x, p))).slice(0, 8));
   const sameDest = (a, b) => a.lat === b.lat && a.lng === b.lng;
-  const cfg = () => Object.assign({ theme: 'auto', voice: true, awake: true, alert: false, limit: 100, remember: true }, store.get('cfg', {}));
+  const cfg = () => Object.assign({ theme: 'auto', voice: true, awake: true, alert: false, limit: 100, remember: true, autoOffline: false }, store.get('cfg', {}));
   const setCfg = o => store.set('cfg', Object.assign(cfg(), o));
 
   /* ---------- Iconos (SVG en línea, sin imágenes) ---------- */
@@ -28,7 +29,8 @@
     vol: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>',
     mute: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M23 9l-6 6M17 9l6 6"/>',
     save: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
-    pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+    pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
   };
   const svg = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]}</svg>`;
   const paintIcons = () => document.querySelectorAll('[data-i]').forEach(e => { e.innerHTML = svg(e.dataset.i); });
@@ -36,7 +38,7 @@
   /* ---------- Estado ---------- */
   const state = {
     pos: null, last: null, heading: 0, speed: 0, dest: null, route: null, nav: false, follow: true,
-    watchId: null, off: 0, lastReroute: 0, lastWarn: 0, spoken: {}, ctrl: null, sctrl: null, wl: null
+    pick: null, origin: null, rotAcc: 0, rotLast: null, watchId: null, off: 0, lastReroute: 0, lastWarn: 0, spoken: {}, ctrl: null, sctrl: null, wl: null
   };
   const layers = {};
   let car = null, toastTimer, baseLayer = null, pm = null, lastScan = 0, graphInfo = null;                   // pm = mapa sin conexión activo
@@ -71,26 +73,45 @@
   /* ---------- Mapa (centrado en Ecuador) ---------- */
   const map = L.map('map', { zoomControl: false }).setView([-1.83, -78.18], 7);
   const CARTO_KEY = (window.GPSL_CONFIG || {}).CARTO_KEY || '';
+  function loadScript(src) {
+    return new Promise((ok, fail) => { const e = document.createElement('script'); e.src = src; e.onload = ok; e.onerror = () => fail(new Error('no se pudo cargar ' + src)); document.head.appendChild(e); });
+  }
+  let vecReady = null;
+  const ensureVector = () => vecReady || (vecReady = (window.protomapsL && window.pmtiles) ? Promise.resolve()
+    : loadScript('lib/pmtiles.js').then(() => loadScript('lib/protomaps-leaflet.js')));      // solo se cargan si se usa un mapa sin conexión
+  function watchVector(layer) {                                                             // si el mapa vectorial no dibuja nada, vuelve al mapa en línea
+    let ok = 0; layer.on('tileload', () => { ok++; });
+    setTimeout(() => {
+      if (pm && baseLayer === layer && ok === 0) {
+        logd('mapa vectorial sin tiles: se vuelve al mapa en línea'); pm = null; setBase();
+        toast('El mapa sin conexión no se dibuja en este dispositivo. Se usa el mapa en línea.', 9000);
+      }
+    }, 15000);
+  }
   function setBase() {                                                                      // en línea (CARTO) o vectorial (.pmtiles)
     const old = baseLayer, next = pm
       ? protomapsL.leafletLayer({ url: pm.source, lang: 'es', maxDataZoom: pm.maxZoom, flavor: 'light', attribution: '© OpenStreetMap, Protomaps' })
       : L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY,
           { subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap, © CARTO' });
     next.addTo(map); baseLayer = next; if (old) old.remove();
+    if (pm) watchVector(next);
   }
   map.on('dragstart', () => { state.follow = false; });
   map.on('click', e => {
     if (state.nav) return;
-    const { lat, lng } = e.latlng, b = document.createElement('button');
-    b.textContent = 'Ir aquí';
-    b.onclick = () => { map.closePopup(); setDestination({ name: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, title: 'Punto en el mapa', sub: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng }); };
-    L.popup({ closeButton: false }).setLatLng(e.latlng).setContent(b).openOn(map);
+    const { lat, lng } = e.latlng, mk = t => ({ name: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, title: t, sub: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng });
+    const box = document.createElement('div'); box.className = 'pop';
+    [['Desde aquí', () => setOrigin(mk('Punto de partida'))], ['Hasta aquí', () => setDestination(mk('Punto en el mapa'))]].forEach(([t, fn]) => {
+      const b = document.createElement('button'); b.textContent = t; b.onclick = () => { map.closePopup(); fn(); }; box.append(b);
+    });
+    L.popup({ closeButton: false }).setLatLng(e.latlng).setContent(box).openOn(map);
   });
 
   /* ---------- Archivos sin conexión ---------- */
   async function loadOfflineMap(file, quiet) {
     const before = pm;
     try {
+      await ensureVector();
       const source = new pmtiles.PMTiles(file.native ? new NativeSource(file.native) : new pmtiles.FileSource(file));
       const h = await source.getHeader();                                                   // falla si no es un .pmtiles válido
       await source.getZxy(h.minZoom, 0, 0);                                                 // prueba: leer y descomprimir un tile
@@ -117,7 +138,9 @@
     try {
       const a = await usb('access');
       if (!a.granted) { if (manual) toast('Acepta el permiso de almacenamiento y vuelve a pulsar "Buscar en el pendrive".', 6000); return false; }
-      const seen = {}, list = (await usb('find')).files.filter(f => { const k = f.name + f.size; return seen[k] ? false : (seen[k] = true); });
+      const res = await usb('find');
+      logd('buscar archivos: ' + res.visited + ' carpetas' + (res.unreadable && res.unreadable.length ? ' · SIN PERMISO en: ' + res.unreadable.join(', ') : ''));
+      const seen = {}, list = res.files.filter(f => { const k = f.name + f.size; return seen[k] ? false : (seen[k] = true); });
       const pick = ext => list.filter(f => f.name.toLowerCase().endsWith(ext)).sort((x, y) => y.size - x.size)[0];
       const m = pick('.pmtiles'), g = pick('.g593');
       logd('pendrive: ' + (m ? m.name + ' ' + Math.round(m.size / 1048576) + ' MB' : 'sin .pmtiles') + ' · ' + (g ? g.name + ' ' + Math.round(g.size / 1048576) + ' MB' : 'sin .g593'));
@@ -167,8 +190,8 @@
 
   /* ---------- Voz ---------- */
   const Voice = {
-    ok: 'speechSynthesis' in window, pick: null, cur: null,
-    voice() {                                                                               // mejor voz en español disponible
+    ok: NATIVE || 'speechSynthesis' in window, pick: null, cur: null,
+    voice() {                                                                               // mejor voz en español disponible (navegador)
       if (this.pick) return this.pick;
       const vs = speechSynthesis.getVoices();
       for (const l of ['es-EC', 'es-419', 'es-US', 'es-MX', 'es-CO', 'es-ES']) {
@@ -178,68 +201,77 @@
     },
     say(text, force) {
       if (!this.ok || (!force && !cfg().voice)) return;
+      logd('voz: ' + text);
+      if (NATIVE) { usb('speak', { text }).catch(e => logd('voz nativa: ' + ((e && e.message) || e))); return; }
       try {
         if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text), v = this.voice();
         u.lang = v ? v.lang : 'es-ES'; if (v) u.voice = v;
         u.onerror = e => logd('voz error: ' + (e.error || '?'));
         this.cur = u;                                                                       // evita que el navegador la descarte
-        logd('voz: ' + text);
         setTimeout(() => { try { speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) { logd('voz: ' + e.message); } }, 150);
       } catch (e) { logd('voz: ' + e.message); }
     },
-    unlock() { if (this.ok) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* sin voz */ } } },
-    info() { return this.ok ? `${speechSynthesis.getVoices().length} voces · ${this.voice() ? this.voice().lang : 'ninguna en español'}` : 'no disponible en este navegador'; }
+    stop() { if (NATIVE) usb('speakStop').catch(() => {}); else if (this.ok) speechSynthesis.cancel(); },
+    unlock() { if (!NATIVE && this.ok) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* sin voz */ } } },
+    info() { return NATIVE ? 'voz del sistema Android' : this.ok ? `${speechSynthesis.getVoices().length} voces · ${this.voice() ? this.voice().lang : 'ninguna en español'}` : 'no disponible en este navegador'; }
   };
-  if (Voice.ok) speechSynthesis.onvoiceschanged = () => { Voice.pick = null; };
-
+  if (!NATIVE && Voice.ok) speechSynthesis.onvoiceschanged = () => { Voice.pick = null; };
   const paintMute = () => { $('btnMute').innerHTML = svg(cfg().voice ? 'vol' : 'mute'); };
-  $('btnMute').onclick = () => { setCfg({ voice: !cfg().voice }); paintMute(); if (Voice.ok) speechSynthesis.cancel(); };
+  $('btnMute').onclick = () => { setCfg({ voice: !cfg().voice }); paintMute(); Voice.stop(); };
 
   /* ---------- Buscador: sugerencias mientras se escribe ---------- */
-  function showList(items, isFav) {
-    const ul = $('list'); clear(ul);
-    if (!items.length) {
-      const li = document.createElement('li'); li.className = 'empty';
-      li.textContent = isFav ? 'Aún no tienes favoritos. Guarda un destino con ☆.' : 'Sin resultados. Prueba con otro nombre o agrega la ciudad.';
-      ul.append(li);
-    }
-    items.forEach(p => {
-      const li = document.createElement('li'), ic = document.createElement('span'), tx = document.createElement('div'), t = document.createElement('b');
-      ic.className = 'ic'; ic.innerHTML = svg(isFav ? 'star' : 'pin'); tx.className = 'tx';
-      t.textContent = p.title || p.name.split(',')[0]; tx.append(t);
-      const sub = p.sub !== undefined ? p.sub : p.name.split(',').slice(1).join(',').trim();
-      if (sub) { const s = document.createElement('small'); s.textContent = sub; tx.append(s); }
-      li.append(ic, tx);
-      if (isFav) {
-        const x = document.createElement('button'); x.innerHTML = svg('x'); x.setAttribute('aria-label', 'Quitar de favoritos');
-        x.onclick = e => { e.stopPropagation(); store.set('favs', favs().filter(f => !sameDest(f, p))); showList(favs(), true); };
-        li.append(x);
-      }
-      li.onclick = () => { ul.hidden = true; $('q').blur(); setDestination(p); };
-      ul.append(li);
+  function renderList(sections, emptyMsg) {
+    const ul = $('list'); clear(ul); let n = 0;
+    sections.forEach(sec => {
+      if (!sec.items.length) return;
+      if (sec.title) { const h = document.createElement('li'); h.className = 'hdr'; h.textContent = sec.title; ul.append(h); }
+      sec.items.forEach(p => {
+        n++;
+        const li = document.createElement('li'), ic = document.createElement('span'), tx = document.createElement('div'), t = document.createElement('b');
+        ic.className = 'ic'; ic.innerHTML = svg(sec.icon || 'pin'); tx.className = 'tx';
+        t.textContent = p.title || p.name.split(',')[0]; tx.append(t);
+        const sub = p.sub !== undefined ? p.sub : p.name.split(',').slice(1).join(',').trim();
+        if (sub) { const sm = document.createElement('small'); sm.textContent = sub; tx.append(sm); }
+        li.append(ic, tx);
+        if (sec.del) {
+          const x = document.createElement('button'); x.innerHTML = svg('x'); x.setAttribute('aria-label', 'Quitar de la lista');
+          x.onclick = e => { e.stopPropagation(); sec.del(p); };
+          li.append(x);
+        }
+        li.onclick = () => { ul.hidden = true; $('q').blur(); choose(p); };
+        ul.append(li);
+      });
     });
+    if (!n) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = emptyMsg || 'Sin resultados.'; ul.append(li); }
     ul.hidden = false;
   }
+  const showFavs = () => renderList([{ title: 'Favoritos', icon: 'star', items: favs(), del: p => { store.set('favs', favs().filter(f => !sameDest(f, p))); showFavs(); } }],
+    'Aún no tienes favoritos. Guarda un destino con la estrella.');
+  const showHome = () => renderList([
+    { title: 'Recientes', icon: 'clock', items: recents(), del: p => { store.set('recents', recents().filter(r => !sameDest(r, p))); showHome(); } },
+    { title: 'Favoritos', icon: 'star', items: favs(), del: p => { store.set('favs', favs().filter(f => !sameDest(f, p))); showHome(); } }
+  ], 'Aquí aparecerán tus búsquedas recientes y tus favoritos.');
+  function choose(p) { if (state.pick === 'origin') setOrigin(p); else setDestination(p); }
   async function search(q, typing) {
     if (state.sctrl) state.sctrl.abort();
     const ctrl = state.sctrl = new AbortController(), c = map.getCenter();
     try {
       const r = await R.geocode(q, ctrl.signal, { typing, near: state.pos || [c.lat, c.lng] });
-      if ($('q').value.trim() === q) showList(r);
+      if ($('q').value.trim() === q) renderList([{ items: r, icon: 'pin' }], 'Sin resultados. Prueba con otro nombre o agrega la ciudad.');
     } catch (err) { if (err.name !== 'AbortError' && !typing) toast(err.message); }
   }
   let typingTimer;
   $('q').addEventListener('input', () => {
     clearTimeout(typingTimer);
     const q = $('q').value.trim(); $('qClear').hidden = !q;
-    if (q.length < 2) { $('list').hidden = true; return; }
+    if (q.length < 2) { if (!q) showHome(); else $('list').hidden = true; return; }
     typingTimer = setTimeout(() => search(q, true), 350);                                   // espera a que termines de teclear
   });
-  $('q').addEventListener('focus', () => { if (!$('q').value && favs().length) showList(favs(), true); });
-  $('qClear').onclick = () => { $('q').value = ''; $('qClear').hidden = true; $('list').hidden = true; $('q').focus(); };
+  $('q').addEventListener('focus', () => { if (!$('q').value) showHome(); });
+  $('qClear').onclick = () => { $('q').value = ''; $('qClear').hidden = true; $('q').focus(); showHome(); };
   $('searchForm').onsubmit = e => { e.preventDefault(); const q = $('q').value.trim(); if (q.length >= 2) search(q, false); };
-  $('btnFavs').onclick = () => { if ($('list').hidden) showList(favs(), true); else $('list').hidden = true; };
+  $('btnFavs').onclick = () => { if ($('list').hidden) showFavs(); else $('list').hidden = true; };
   document.addEventListener('click', e => { if (!e.target.closest('.top')) $('list').hidden = true; });
   $('btnSave').onclick = () => {
     const f = favs(), d = state.dest;
@@ -248,13 +280,14 @@
   };
 
   /* ---------- Ruta ---------- */
-  function clearLayers() { ['casing', 'line', 'pin'].forEach(k => { if (layers[k]) { layers[k].remove(); layers[k] = null; } }); }
+  function clearLayers() { ['casing', 'line', 'pin', 'org'].forEach(k => { if (layers[k]) { layers[k].remove(); layers[k] = null; } }); }
   function drawRoute() {
     clearLayers();
     const c = state.route.coords;
     layers.casing = L.polyline(c, { weight: 11, className: 'route-casing', lineJoin: 'round', interactive: false }).addTo(map);
     layers.line = L.polyline(c, { weight: 6, className: 'route', lineJoin: 'round', interactive: false }).addTo(map);
     layers.pin = L.marker([state.dest.lat, state.dest.lng], { icon: L.divIcon({ className: 'pin', iconSize: [22, 22] }), interactive: false }).addTo(map);
+    if (state.origin) layers.org = L.circleMarker([state.origin.lat, state.origin.lng], { radius: 9, color: '#fff', weight: 3, fillColor: '#16a34a', fillOpacity: 1, interactive: false }).addTo(map);
   }
   function paintSummary(sec, m) { $('sEta').textContent = R.fmtClock(sec); $('sTime').textContent = R.fmtTime(sec); $('sDist').textContent = R.fmtDist(m); }
   function setNavUI(on) {
@@ -268,6 +301,8 @@
     $('sheet').hidden = false; document.body.classList.add('has-route');
     $('sDest').textContent = d.title || parts[0];
     $('sSub').textContent = d.sub !== undefined ? d.sub : parts.slice(1).join(',').trim();
+    const o = state.origin; $('sFrom').textContent = o ? (o.title || o.name.split(',')[0]) : 'Mi ubicación'; $('btnFromReset').hidden = !o;
+    $('btnGo').textContent = o ? 'Ir desde mi ubicación' : 'Iniciar';
     paintSummary(state.route.duration, state.route.distance); setNavUI(false);
     map.fitBounds(layers.line.getBounds(), { paddingTopLeft: [24, 90], paddingBottomRight: [24, 300] });
   }
@@ -296,15 +331,20 @@
       if (r.local) toast('Ruta calculada sin conexión');
     } catch (e) { if (e.name !== 'AbortError') toast(e.message); }
   }
-  async function setDestination(p) {
-    stopNav(); state.dest = p;
-    let from = state.pos || await getFix();
+  async function recompute() {
+    if (!state.dest) return;
+    let from = state.origin ? [state.origin.lat, state.origin.lng] : (state.pos || await getFix());
     if (!from) { const c = map.getCenter(); from = [c.lat, c.lng]; toast('Sin GPS: se usa el centro del mapa como origen.'); }
-    computeRoute(from, false);
+    return computeRoute(from, false);
+  }
+  async function setDestination(p) { stopNav(); state.dest = p; addRecent(p); return recompute(); }
+  function setOrigin(p) {
+    state.origin = p; state.pick = null; $('q').placeholder = '¿A dónde vamos?'; $('q').value = ''; $('qClear').hidden = true;
+    if (state.dest) recompute(); else toast('Punto de partida: ' + (p.title || p.name.split(',')[0]) + '. Ahora elige el destino.', 5000);
   }
   function clearRoute() {
     if (state.ctrl) state.ctrl.abort();
-    clearLayers(); state.route = state.dest = null;
+    clearLayers(); state.route = state.dest = null; state.origin = null; state.pick = null; $('q').placeholder = '¿A dónde vamos?';
     $('sheet').hidden = true; document.body.classList.remove('has-route');
   }
 
@@ -325,13 +365,13 @@
   function stopWatch() { if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; } }
   function stopNav() {
     if (state.wl) { state.wl.release(); state.wl = null; }
-    if (Voice.ok) speechSynthesis.cancel(); setNavUI(false);
+    Voice.stop(); setNavUI(false);
   }
   document.addEventListener('visibilitychange', () => {                                      // sin rastreo en segundo plano
     if (document.hidden) stopLocation();
     else {
       startLocation();
-      if (NATIVE && !pm && Date.now() - lastScan > 5000) usbScan(false);                     // pendrive conectado mientras tanto
+      if (NATIVE && cfg().autoOffline && !pm && Date.now() - lastScan > 5000) usbScan(false);                     // pendrive conectado mientras tanto
     }
   });
   function onFix(pp) {
@@ -352,9 +392,10 @@
   }
   const CAR_SVG = '<div class="car-rot"><svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 17 4 21Z" style="fill:#f5b800;stroke:#14202b;stroke-width:1.5;stroke-linejoin:round"/></svg></div>';
   function moveCar() {
-    if (!car) car = L.marker(state.pos, { icon: L.divIcon({ className: 'car', html: CAR_SVG, iconSize: [40, 40], iconAnchor: [20, 20] }), interactive: false, keyboard: false, zIndexOffset: 1000 }).addTo(map);
+    if (!car) car = L.marker(state.pos, { icon: L.divIcon({ className: 'car', html: CAR_SVG, iconSize: [44, 44], iconAnchor: [22, 22] }), interactive: false, keyboard: false, zIndexOffset: 1000 }).addTo(map);
     car.setLatLng(state.pos);
-    const el = car.getElement() && car.getElement().firstChild; if (el) el.style.transform = `rotate(${state.heading}deg)`;
+    const a = state.heading; state.rotAcc = state.rotLast === null ? a : state.rotAcc + ((a - state.rotLast + 540) % 360) - 180; state.rotLast = a;   // sin vueltas largas al cruzar 0°/360°
+    const el = car.getElement() && car.getElement().firstChild; if (el) el.style.transform = `rotate(${state.rotAcc}deg)`;
     if (state.nav && state.follow) map.panTo(state.pos, { animate: true, duration: 0.8 });
   }
   function navigate(p, accuracy) {
@@ -423,7 +464,7 @@
     toast(store.set('routes', list.slice(0, 5)) ? 'Ruta guardada: podrás usarla sin internet' : 'No hay espacio para guardar la ruta');
   };
   function openSaved(item) {
-    stopNav(); state.dest = item.dest; state.route = R.restore(item.route); state.spoken = {}; state.off = 0;
+    stopNav(); state.origin = null; state.dest = item.dest; state.route = R.restore(item.route); state.spoken = {}; state.off = 0;
     drawRoute(); presentRoute(); toast('Ruta cargada. Inicia desde el punto de partida.');
   }
   function showRoutes() {
@@ -444,18 +485,18 @@
   function renderSettings() {
     const c = cfg();
     document.querySelectorAll('#segTheme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === c.theme)));
-    [['tgVoice', 'voice'], ['tgAwake', 'awake'], ['tgAlert', 'alert'], ['tgRemember', 'remember']].forEach(([id, k]) => $(id).setAttribute('aria-checked', String(c[k])));
+    [['tgVoice', 'voice'], ['tgAwake', 'awake'], ['tgAlert', 'alert'], ['tgRemember', 'remember'], ['tgAuto', 'autoOffline']].forEach(([id, k]) => $(id).setAttribute('aria-checked', String(c[k])));
     $('limVal').textContent = c.limit; $('rowLimit').hidden = !c.alert;
     $('offMap').textContent = pm ? pm.name + ' (sin conexión)' : 'En línea (CARTO)';
     $('offGraph').textContent = Offline.ready() ? 'Activas: rutas y búsqueda sin internet' : 'No cargadas';
-    $('btnUsb').hidden = !NATIVE; $('btnForget').hidden = NATIVE; $('rowRemember').hidden = NATIVE; $('btnOnline').hidden = !pm;
+    $('btnUsb').hidden = !NATIVE; $('btnForget').hidden = NATIVE; $('rowRemember').hidden = NATIVE; $('rowAuto').hidden = !NATIVE; $('btnOnline').hidden = !pm;
   }
   const closeSettings = () => { $('settings').hidden = true; };
   $('btnMenu').onclick = () => { $('list').hidden = true; renderSettings(); $('settings').hidden = false; };
   $('setClose').onclick = closeSettings;
   $('settings').onclick = e => { if (e.target === $('settings')) closeSettings(); };
   document.querySelectorAll('#segTheme button').forEach(b => { b.onclick = () => { setCfg({ theme: b.dataset.v }); applyTheme(); renderSettings(); }; });
-  [['tgVoice', 'voice'], ['tgAwake', 'awake'], ['tgAlert', 'alert'], ['tgRemember', 'remember']].forEach(([id, k]) => {
+  [['tgVoice', 'voice'], ['tgAwake', 'awake'], ['tgAlert', 'alert'], ['tgRemember', 'remember'], ['tgAuto', 'autoOffline']].forEach(([id, k]) => {
     $(id).onclick = () => { setCfg({ [k]: !cfg()[k] }); paintMute(); renderSettings(); };
   });
   $('limDown').onclick = () => { setCfg({ limit: Math.max(30, cfg().limit - 10) }); renderSettings(); };
@@ -465,21 +506,33 @@
   $('btnOnline').onclick = () => { pm = null; $('fileMap').value = ''; setBase(); renderSettings(); };
   $('btnForget').onclick = async () => { try { await opfsClear(); } catch (e) { toast('No se pudo borrar.'); } };
   $('btnVoiceTest').onclick = () => { Voice.say('Hola. Esta es la guía de voz de GPS 593.', true); toast('Voz: ' + Voice.info(), 6000); };
-  $('rowFavs').onclick = () => { closeSettings(); showList(favs(), true); };
+  $('rowFavs').onclick = () => { closeSettings(); showFavs(); };
   $('rowRoutes').onclick = () => { closeSettings(); showRoutes(); };
-  $('rowDiag').onclick = () => {
+  $('btnClearHist').onclick = () => { store.set('recents', []); toast('Historial de búsquedas borrado.'); };
+  $('rowDiag').onclick = async () => {
     const v = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1], mb = n => Math.round(n / 1048576) + ' MB';
+    let voz = Voice.info();
+    if (NATIVE) { try { const t = await usb('ttsInfo'); voz = t.ready ? 'voz del sistema (' + (t.engine || '?') + ')' : 'voz del sistema: iniciando o sin motor de voz instalado'; } catch (e) { voz = 'voz nativa: error'; } }
     const lines = [`WebView Chrome ${v || '?'}${NATIVE ? ' · app Android' : ''}${v && v < 80 ? ' (antigua)' : ''}`,
       `Mapa: ${pm ? pm.name + ' ' + mb(pm.size || 0) : 'en línea'}`,
       `Rutas: ${Offline.ready() ? (graphInfo ? graphInfo.name + ' ' + mb(graphInfo.size) : 'cargadas') : 'no cargadas'}`,
-      `Internet: ${navigator.onLine ? 'sí' : 'no'}`, `Voz: ${Voice.info()}`,
-      `GPS: ${state.lastFixAt ? Math.round((Date.now() - state.lastFixAt) / 1000) + ' s desde el último fix' : 'sin posición todavía'}${NATIVE ? ' (GPS de Android' + (lastNative ? ': ' + lastNative.provider + ', ±' + Math.round(lastNative.acc) + ' m' : '') + ')' : ' (navegador)'}`].concat((window.GPSL_LOG || []).slice(-12));
+      `Internet: ${navigator.onLine ? 'sí' : 'no'}`, `Voz: ${voz}`,
+      `GPS: ${state.lastFixAt ? Math.round((Date.now() - state.lastFixAt) / 1000) + ' s desde el último fix' : 'sin posición todavía'}${NATIVE ? ' (GPS de Android' + (lastNative ? ': ' + lastNative.provider + ', ±' + Math.round(lastNative.acc) + ' m' : '') + ')' : ' (navegador)'}`
+    ].concat((window.GPSL_LOG || []).slice(-12));
     const box = $('diagLog'); box.textContent = lines.join('\n'); box.hidden = false;
   };
 
-
   /* ---------- Botones principales ---------- */
-  $('btnGo').onclick = () => { Voice.unlock(); startNav(); startWatch(); };
+  $('btnGo').onclick = async () => {
+    Voice.unlock();
+    if (state.origin) { state.origin = null; await recompute(); }                           // navegar siempre desde donde estás
+    startNav(); startWatch();
+  };
+  $('btnFrom').onclick = () => {
+    state.pick = 'origin'; $('q').placeholder = 'Buscar el punto de partida…'; $('q').focus(); showHome();
+    toast('Busca el punto de partida o toca el mapa y elige "Desde aquí".', 6000);
+  };
+  $('btnFromReset').onclick = () => { state.origin = null; recompute(); };
   $('btnCancel').onclick = () => { stopNav(); clearRoute(); };
   $('btnLocate').onclick = async () => {
     state.follow = true;
@@ -495,6 +548,6 @@
     const ok = state.lastFixAt && Date.now() - state.lastFixAt < 15000;
     $('speed').classList.toggle('nogps', !ok); $('speed').querySelector('small').textContent = ok ? 'km/h' : 'sin GPS';
   }, 2000);
-  if (NATIVE) setTimeout(() => usbScan(false), 800);                                         // APK: carga lo que haya en el pendrive
+  if (NATIVE) { if (cfg().autoOffline) setTimeout(() => usbScan(false), 800); }                                         // APK: carga lo que haya en el pendrive
   else { if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {}); if (cfg().remember) opfsLoad().catch(() => {}); }
 })();
