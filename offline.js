@@ -9,8 +9,23 @@
   const dm = (a, b) => Math.hypot((b[0] - a[0]) * 111320, (b[1] - a[1]) * 111320 * Math.cos((a[0] + b[0]) * RAD / 2));
   const bearing = (a, b) => (Math.atan2((b[1] - a[1]) * Math.cos(a[0] * RAD), b[0] - a[0]) / RAD + 360) % 360;
 
+  const mb = n => Math.round(n / 1048576) + ' MB';
+  /* Comprueba que sea un archivo de rutas de GPS593 mini (formato 1) y que esté completo, mirando solo la cabecera. */
+  function inspect(head, size) {
+    if (!head || head.byteLength < 28) return { ok: false, message: 'archivo demasiado pequeño' };
+    const dv = new DataView(head);
+    if (dv.getUint32(0, true) !== 0x33393547) return { ok: false, message: 'no es un archivo de rutas de GPS593 (cabecera desconocida)' };
+    const ver = dv.getUint32(4, true), nN = dv.getUint32(8, true), nS = dv.getUint32(12, true), nP = dv.getUint32(16, true),
+          nA = dv.getUint32(20, true), jl = dv.getUint32(24, true);
+    if (ver !== 1) return { ok: false, message: `formato de rutas versión ${ver}; GPS593 mini usa la versión 1. Genera el archivo con el flujo «Crear mapa y rutas (GPS593 mini)»` };
+    const expected = 28 + 4 * (2 * nN + (nN + 1) + nA + 5 * nS + (nS + 1) + 2 * nP) + nS + jl;
+    if (size !== undefined && expected !== size) return { ok: false, message: `tamaño distinto al esperado (${mb(size)} en lugar de ${mb(expected)}): archivo incompleto o de otra aplicación` };
+    return { ok: true, message: 'ok' };
+  }
+
   async function load(file) {
     const buf = await file.arrayBuffer(), dv = new DataView(buf);
+    const v = inspect(buf, buf.byteLength); if (!v.ok) throw new Error(v.message);
     if (dv.getUint32(0, true) !== 0x33393547) throw new Error('Archivo .g593 no válido');      // "G593"
     const nN = dv.getUint32(8, true), nS = dv.getUint32(12, true), nP = dv.getUint32(16, true),
           nA = dv.getUint32(20, true), jl = dv.getUint32(24, true);
@@ -22,7 +37,7 @@
     d.sFrom = take(Uint32Array, nS); d.sTo = take(Uint32Array, nS);
     d.sTime = take(Float32Array, nS); d.sDist = take(Float32Array, nS); d.sName = take(Uint32Array, nS);
     d.gOff = take(Uint32Array, nS + 1); d.pts = take(Int32Array, 2 * nP); d.sFlags = take(Uint8Array, nS);
-    const j = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, o, jl)));
+    let j; try { j = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, o, jl))); } catch (e) { throw new Error('la lista de lugares del archivo está dañada'); }
     d.names = j.names; d.places = j.places; d.norm = j.places.map(p => norm(p[0]));
     // cuadrícula de puntos para ubicar la calle más cercana
     let a = 1e12, b = -1e12, c = 1e12, e = -1e12;
@@ -199,5 +214,5 @@
     });
   }
 
-  g.Offline = { load, ready: () => !!G, route, search };
+  g.Offline = { load, inspect, ready: () => !!G, route, search };
 })(typeof window !== 'undefined' ? window : globalThis);

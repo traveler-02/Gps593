@@ -27,6 +27,12 @@ vg = A / 'variables.gradle'; v = vg.read_text(encoding='utf-8')
 v2 = re.sub(r'targetSdkVersion\s*=\s*\d+', 'targetSdkVersion = 29', v); assert v2 != v
 vg.write_text(v2, encoding='utf-8')
 
+# 3b) Versión de la app = version.js (versionCode = mayor*10000 + menor*100 + parche)
+vm = re.search(r"version: '(\d+)\.(\d+)\.(\d+)'", open('version.js', encoding='utf-8').read()); major, minor, patch = map(int, vm.groups())
+bg = A / 'app' / 'build.gradle'; g = bg.read_text(encoding='utf-8')
+g = re.sub(r'versionCode\s+\d+', f'versionCode {major * 10000 + minor * 100 + patch}', g); g = re.sub(r'versionName\s+"[^"]*"', f'versionName "{major}.{minor}.{patch}"', g)
+bg.write_text(g, encoding='utf-8')
+
 # 4) Íconos y pantalla de inicio con el logo de GPS 593 (ícono cuadrado redondeado; sin ícono adaptable)
 logo = Image.open('icons/logo.png').convert('RGBA')
 def fit(canvas, frac, bg=(0, 0, 0, 0)):

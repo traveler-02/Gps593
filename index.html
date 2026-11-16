@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#2b7de9">
 <link rel="stylesheet" href="lib/leaflet.css">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=1.0.0">
 </head>
 <body>
 <div id="map" aria-label="Mapa"></div>
@@ -34,6 +34,7 @@
 
 <div id="speed" class="speed"><b id="speedVal">0</b><small>km/h</small></div>
 <div class="fabs">
+  <button id="btnCompass" class="ib fab" aria-label="Brújula: señala el Norte" data-i="compass"></button>
   <button id="btnTheme" class="ib fab" aria-label="Cambiar tema" data-i="moon"></button>
   <button id="btnLocate" class="ib fab" aria-label="Mi ubicación" data-i="locate"></button>
 </div>
@@ -60,32 +61,66 @@
 <div id="settings" class="overlay" hidden>
   <div class="panel" role="dialog" aria-label="Ajustes">
     <div class="phead"><img src="icons/logo.png" alt=""><div><b>GPS593 mini</b><small>Ajustes</small></div><button id="setClose" class="ib flat" aria-label="Cerrar" data-i="x"></button></div>
-    <h3>Apariencia</h3>
-    <div class="group"><div class="row"><span>Tema</span><div id="segTheme" class="seg"><button data-v="auto">Auto</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button></div></div></div>
-    <h3>Navegación</h3>
-    <div class="group">
-      <div class="row"><span>Guía por voz</span><button id="tgVoice" class="sw" role="switch" aria-checked="true"></button></div>
-      <div class="row"><span>Mantener la pantalla encendida</span><button id="tgAwake" class="sw" role="switch" aria-checked="true"></button></div>
-      <div class="row"><span>Alerta de velocidad</span><button id="tgAlert" class="sw" role="switch" aria-checked="false"></button></div>
-      <button id="btnVoiceTest" class="rowbtn">Probar la voz</button>
-      <div class="row" id="rowLimit" hidden><span>Mi límite</span><div class="step"><button id="limDown" aria-label="Menos">−</button><b id="limVal">100</b><small>km/h</small><button id="limUp" aria-label="Más">+</button></div></div>
+    <div class="tabs" role="tablist">
+      <button data-tab="general" aria-selected="true">General</button><button data-tab="lugares" aria-selected="false">Lugares</button>
+      <button data-tab="offline" aria-selected="false">Sin conexión</button><button data-tab="about" aria-selected="false">Acerca de</button>
     </div>
-    <h3>Sin conexión</h3>
-    <div class="group">
-      <div class="row col"><span>Mapa</span><small id="offMap"></small></div>
-      <div class="row col"><span>Rutas y búsqueda</span><small id="offGraph"></small></div>
-      <div class="row" id="rowAuto" hidden><span>Cargar mapas sin conexión al iniciar</span><button id="tgAuto" class="sw" role="switch" aria-checked="false"></button></div>
-      <div class="row" id="rowRemember"><span>Recordar los archivos en este dispositivo</span><button id="tgRemember" class="sw" role="switch" aria-checked="true"></button></div>
-      <button id="btnUsb" class="rowbtn" hidden>Buscar en el pendrive</button>
-      <button id="btnLoad" class="rowbtn">Elegir archivos (.pmtiles / .g593)</button>
-      <button id="btnOnline" class="rowbtn">Usar el mapa en línea</button>
-      <button id="btnForget" class="rowbtn danger">Borrar los archivos guardados</button>
-    </div>
-    <h3>Mis lugares</h3>
-    <div class="group"><button id="rowFavs" class="rowbtn">Favoritos</button><button id="rowRoutes" class="rowbtn">Rutas guardadas</button><button id="btnClearHist" class="rowbtn">Borrar historial de búsquedas</button></div>
-    <h3>Acerca de</h3>
-    <div class="group"><button id="rowDiag" class="rowbtn">Diagnóstico del dispositivo</button>
-      <pre id="diagLog" class="logbox" hidden></pre><div class="row col"><small>GPS593 mini · ligera, sin anuncios ni rastreo en segundo plano · mapas © OpenStreetMap</small></div></div>
+
+    <section class="tabpane" id="tab-general">
+      <h3>Apariencia</h3>
+      <div class="group"><div class="row"><span>Tema</span><div id="segTheme" class="seg"><button data-v="auto">Auto</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button></div></div></div>
+      <h3>Navegación</h3>
+      <div class="group">
+        <div class="row"><span>Guía por voz</span><button id="tgVoice" class="sw" role="switch" aria-checked="true"></button></div>
+        <div class="row"><span>Mantener la pantalla encendida</span><button id="tgAwake" class="sw" role="switch" aria-checked="true"></button></div>
+        <div class="row"><span>Alerta de velocidad</span><button id="tgAlert" class="sw" role="switch" aria-checked="false"></button></div>
+        <button id="btnVoiceTest" class="rowbtn">Probar la voz</button>
+        <div class="row" id="rowLimit" hidden><span>Mi límite</span><div class="step"><button id="limDown" aria-label="Menos">−</button><b id="limVal">100</b><small>km/h</small><button id="limUp" aria-label="Más">+</button></div></div>
+      </div>
+    </section>
+
+    <section class="tabpane" id="tab-lugares" hidden>
+      <h3>Accesos rápidos</h3>
+      <div class="group">
+        <div class="row"><span class="ic" data-i="home"></span><div class="tx"><b>Casa</b><small id="homeSub"></small></div><button id="btnHome" class="chip">Configurar</button><button id="btnHomeX" class="chip" hidden aria-label="Quitar Casa">✕</button></div>
+        <div class="row"><span class="ic" data-i="work"></span><div class="tx"><b>Trabajo</b><small id="workSub"></small></div><button id="btnWork" class="chip">Configurar</button><button id="btnWorkX" class="chip" hidden aria-label="Quitar Trabajo">✕</button></div>
+      </div>
+      <h3>Mis lugares</h3>
+      <div class="group"><button id="rowFavs" class="rowbtn">Favoritos</button><button id="rowRoutes" class="rowbtn">Rutas guardadas</button><button id="btnClearHist" class="rowbtn">Borrar historial de búsquedas</button></div>
+    </section>
+
+    <section class="tabpane" id="tab-offline" hidden>
+      <h3>Mapas y rutas sin conexión</h3>
+      <div class="group">
+        <div class="row col"><span>Mapa</span><small id="offMap"></small></div>
+        <div class="row col"><span>Rutas y búsqueda</span><small id="offGraph"></small></div>
+        <div class="row" id="rowAuto" hidden><span>Cargar mapas sin conexión al iniciar</span><button id="tgAuto" class="sw" role="switch" aria-checked="false"></button></div>
+        <div class="row" id="rowRemember"><span>Recordar los archivos en este dispositivo</span><button id="tgRemember" class="sw" role="switch" aria-checked="true"></button></div>
+        <button id="btnUsb" class="rowbtn" hidden>Buscar en el teléfono o el pendrive</button>
+        <button id="btnLoad" class="rowbtn">Elegir archivos (.pmtiles / .g593)</button>
+        <button id="btnOnline" class="rowbtn">Usar el mapa en línea</button>
+        <button id="btnForget" class="rowbtn danger">Borrar los archivos guardados</button>
+      </div>
+    </section>
+
+    <section class="tabpane" id="tab-about" hidden>
+      <div class="about"><img src="icons/logo.png" alt=""><h2>GPS593 mini</h2><small id="aboutVer"></small></div>
+      <div class="group">
+        <div class="row"><span>Aplicación</span><b>GPS593 mini</b></div>
+        <div class="row"><span>Versión</span><b id="aboutVersion"></b></div>
+        <div class="row"><span>Desarrollador y propietario</span><b>RonnDu Corp.</b></div>
+        <div class="row col"><small>Ligera, sin anuncios ni rastreo en segundo plano · Mapas © OpenStreetMap</small></div>
+        <button id="rowDiag" class="rowbtn">Diagnóstico del dispositivo</button>
+        <pre id="diagLog" class="logbox" hidden></pre>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="saveMenu" class="overlay" hidden>
+  <div class="panel small" role="dialog" aria-label="Guardar lugar">
+    <div class="phead"><div><b>Guardar lugar</b><small id="saveSub"></small></div><button id="saveClose" class="ib flat" aria-label="Cerrar" data-i="x"></button></div>
+    <div class="group"><button id="saveFav" class="rowbtn"></button><button id="saveHome" class="rowbtn">Establecer como Casa</button><button id="saveWork" class="rowbtn">Establecer como Trabajo</button></div>
   </div>
 </div>
 
@@ -113,9 +148,10 @@ window.addEventListener('unhandledrejection', function (e) { gl('PROMESA: ' + ((
 var _ce = console.error; console.error = function () { try { gl('console.error ' + Array.prototype.slice.call(arguments).join(' ').slice(0, 200)); } catch (x) {} _ce.apply(console, arguments); };
 </script>
 <script src="lib/leaflet.js"></script>
-<script src="offline.js?v=14"></script>
-<script src="routing.js?v=14"></script>
-<script src="config.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="offline.js?v=1.0.0"></script>
+<script src="routing.js?v=1.0.0"></script>
+<script src="config.js?v=1.0.0"></script>
+<script src="version.js?v=1.0.0"></script>
+<script src="app.js?v=1.0.0"></script>
 </body>
 </html>

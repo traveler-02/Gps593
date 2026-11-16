@@ -52,3 +52,14 @@ y sin vías tipo `track` (caminos rurales sin asfaltar). OSM puede tener huecos 
 Versión ligera para teléfonos antiguos. Por defecto usa mapa en línea; los mapas sin conexión son opcionales
 (Ajustes > Sin conexión). Muestra distancia y tiempo entre dos puntos (Desde / Hasta, o toca el mapa),
 flecha de ubicación que gira según el rumbo, historial de búsquedas recientes y favoritos, y voz del sistema Android.
+
+## Versiones y archivos propios de la app «mini»
+- La versión vive en `version.js`. En CADA actualización, por pequeña que sea, súbela con
+  `python tools/bump_version.py 1.0.1 "qué cambió"` (actualiza version.js, sw.js, index.html, package.json y CAMBIOS.md).
+  El APK toma de ahí su versionName y versionCode.
+- Para no chocar con otra app en el mismo repositorio, los flujos y archivos de esta app tienen nombre propio:
+  `crear-mapa-mini.yml` (Release `mapas-mini`, archivos `ecuador-mini.pmtiles` y `ecuador-mini.g593`) y
+  `android-mini.yml` (Release `android-mini`, `gps593-mini-debug.apk`). Borra del repo los flujos antiguos
+  `crear-mapa.yml` y `android.yml` si siguen ahí. Lo más limpio es usar un repositorio distinto para cada app.
+- Al cargar un `.g593` la app comprueba su cabecera y su tamaño: si es de otra app o está incompleto, lo dice
+  claramente en vez de mostrar errores técnicos.

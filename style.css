@@ -133,3 +133,15 @@ body.nav #btnCancel { flex: 1; height: 52px; background: var(--danger); color: #
 .dot.a { background: #16a34a; box-shadow: 0 0 0 2px #16a34a; } .dot.b { background: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
 .chip { padding: 6px 12px; border-radius: 16px; background: var(--chip); font-size: .82rem; font-weight: 600; flex: none; }
 .pop { display: flex; gap: 8px; }
+
+.tabs { display: flex; gap: 6px; margin: 12px 0 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tabs button { padding: 9px 15px; border-radius: 20px; background: var(--chip); font-weight: 600; font-size: .9rem; white-space: nowrap; flex: none; }
+.tabs button[aria-selected="true"] { background: var(--brand); color: #fff; }
+.row .ic { width: 38px; height: 38px; border-radius: 50%; background: var(--chip); color: var(--brand); display: flex; align-items: center; justify-content: center; flex: none; }
+.row .tx { flex: 1; min-width: 0; } .row .tx b { display: block; } .row .tx small { display: block; }
+.about { text-align: center; padding: 14px 0 6px; } .about img { height: 84px; } .about h2 { margin-top: 6px; font-size: 1.3rem; } .about small { color: var(--muted); }
+.panel.small { max-height: none; }
+.list li .rowstar { color: var(--accent); padding: 6px 10px; } 
+.fab.on { background: var(--brand); color: #fff; }
+.fab svg { transition: transform .2s linear; }
+.toast { white-space: pre-line; }
