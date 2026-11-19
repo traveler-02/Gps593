@@ -107,7 +107,21 @@ def main(src, dst):
                     np.array(snm, '<u4'), np.array(goff, '<u4'), np.array(pts, '<i4').reshape(-1), fl):
             f.write(arr.tobytes())
         f.write(blob)
+        f.write(b'G593END!')                                        # pie: si falta, la descarga o copia quedó incompleta
     print(f'nodos={nN} segmentos={nS} puntos={len(pts)} lugares={len(allp)} -> {dst}')
 
+def verify(path):
+    """Relee el archivo recién creado: cabecera, tamaño, pie y lista de lugares (JSON válido)."""
+    import struct, hashlib
+    data = open(path, 'rb').read()
+    assert data[:4] == b'G593', 'cabecera'
+    ver, nN, nS, nP, nA, jl = struct.unpack('<6I', data[4:28])
+    expected = 28 + 4 * (2 * nN + (nN + 1) + nA + 5 * nS + (nS + 1) + 2 * nP) + nS + jl + 8
+    assert len(data) == expected, f'tamaño {len(data)} != {expected}'
+    assert data[-8:] == b'G593END!', 'pie'
+    blob = data[len(data) - 8 - jl: len(data) - 8]
+    json.loads(blob.decode('utf-8'))
+    print('verificación OK · sha256', hashlib.sha256(data).hexdigest()[:16], '·', round(len(data) / 1048576, 1), 'MB')
+
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2]); verify(sys.argv[2])

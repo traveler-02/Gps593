@@ -12,10 +12,13 @@
     set(k, v) { try { localStorage.setItem('gpsl.' + k, JSON.stringify(v)); return true; } catch (e) { return false; } }
   };
   const favs = () => store.get('favs', []), routes = () => store.get('routes', []), recents = () => store.get('recents', []);
-  const place = k => store.get(k, null), isFav = p => favs().some(f => sameDest(f, p)), placeName = p => p.title || p.name.split(',')[0];
-  const addRecent = p => store.set('recents', [p].concat(recents().filter(x => !sameDest(x, p))).slice(0, 8));
+  const place = k => store.get(k, null), isFav = p => favs().some(f => sameDest(f, p)), placeName = p => p.title || p.name.split(',')[0],
+    clean = p => ({ name: p.name, title: p.title, sub: p.sub, lat: p.lat, lng: p.lng });          // solo datos (sin funciones) para guardar
+  const saveKey = (k, v) => { const ok = store.set(k, v); if (!ok) { logd('no se pudo guardar ' + k); toast('No se pudo guardar: el almacenamiento del teléfono está lleno o bloqueado.', 6000); } return ok; };
+  async function namePlace(p) { const r = await R.reverse(p.lat, p.lng); if (r) { p.name = r.name; p.title = r.title; p.sub = r.sub; } return p; }
+  const addRecent = p => store.set('recents', [clean(p)].concat(recents().filter(x => !sameDest(x, p))).slice(0, 8));
   const sameDest = (a, b) => a.lat === b.lat && a.lng === b.lng;
-  const cfg = () => Object.assign({ theme: 'auto', voice: true, awake: true, alert: false, limit: 100, remember: true, autoOffline: false }, store.get('cfg', {}));
+  const cfg = () => Object.assign({ theme: 'auto', voice: true, awake: true, alert: false, limit: 100, remember: true, autoOffline: true }, store.get('cfg', {}));
   const setCfg = o => store.set('cfg', Object.assign(cfg(), o));
 
   /* ---------- Iconos (SVG en línea, sin imágenes) ---------- */
@@ -74,6 +77,23 @@
     return out.buffer;
   }
 
+  /* ---------- Selector de archivos de Android: lectura fiable y el permiso queda guardado ---------- */
+  function nativeFile(f) {
+    const rd = (offset, length) => async () => b64((await usb('read', { path: f.uri, offset, length })).data).buffer;
+    return { name: f.name, size: f.size, native: f.uri, uriInfo: { uri: f.uri, name: f.name, size: f.size },
+      head: rd(0, 28), tail: rd(Math.max(0, f.size - 8), Math.min(8, f.size)),
+      arrayBuffer: () => readWhole(f.uri, f.size, p => toast('Cargando rutas y búsqueda… ' + p + '%', 4000)) };
+  }
+  async function pickNative() {
+    let r; try { r = await usb('pickFile'); } catch (e) { if (/cancel/i.test((e && e.message) || '')) return []; throw e; }
+    const out = [];
+    for (const f of r.files || []) {
+      if (f.size < 0) { try { f.size = (await usb('fileSize', { path: f.uri })).size; } catch (e) { f.size = 0; } }
+      out.push(nativeFile(f));
+    }
+    return out;
+  }
+
   /* ---------- Mapa (centrado en Ecuador) ---------- */
   const map = L.map('map', { zoomControl: false }).setView([-1.83, -78.18], 7);
   const CARTO_KEY = (window.GPSL_CONFIG || {}).CARTO_KEY || '';
@@ -105,7 +125,7 @@
     if (state.nav) return;
     const { lat, lng } = e.latlng, mk = t => ({ name: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, title: t, sub: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng });
     const box = document.createElement('div'); box.className = 'pop';
-    [['Desde aquí', () => setOrigin(mk('Punto de partida'))], ['Hasta aquí', () => setDestination(mk('Punto en el mapa'))]].forEach(([t, fn]) => {
+    [['Desde aquí', async () => setOrigin(await namePlace(mk('Punto de partida')))], ['Hasta aquí', async () => setDestination(await namePlace(mk('Punto en el mapa')))], ['Guardar', async () => openSaveMenu(await namePlace(mk('Lugar guardado')))]].forEach(([t, fn]) => {
       const b = document.createElement('button'); b.textContent = t; b.onclick = () => { map.closePopup(); fn(); }; box.append(b);
     });
     L.popup({ closeButton: false }).setLatLng(e.latlng).setContent(box).openOn(map);
@@ -133,9 +153,10 @@
     }
   }
   async function graphHead(file) { return file.head ? file.head() : file.slice(0, 28).arrayBuffer(); }
+  async function graphTail(file) { return file.tail ? file.tail() : file.slice(Math.max(0, file.size - 8), file.size).arrayBuffer(); }
   async function loadGraph(file) {
     try {
-      const v = Offline.inspect(await graphHead(file), file.size);                          // ¿es un archivo de rutas de esta app, completo y de formato 1?
+      const v = Offline.inspect(await graphHead(file), file.size, await graphTail(file));                          // ¿es un archivo de rutas de esta app, completo y de formato 1?
       if (!v.ok) throw new Error(v.message);
       toast('Cargando datos de rutas…', 8000);
       const i = await Offline.load(file); graphInfo = { name: file.name, size: file.size || 0 }; logd('rutas ok: ' + file.name);
@@ -153,17 +174,18 @@
       const seen = {}, list = res.files.filter(f => { const k = f.name + f.size; return seen[k] ? false : (seen[k] = true); });
       const byName = (a, b) => (/mini/i.test(b.name) - /mini/i.test(a.name)) || (b.size - a.size);   // primero los archivos «mini», luego los más grandes
       const ofType = ext => list.filter(f => f.name.toLowerCase().endsWith(ext)).sort(byName);
+      const tail = (path, size) => async () => b64((await usb('read', { path, offset: Math.max(0, size - 8), length: 8 })).data).buffer;
       const head = path => async () => b64((await usb('read', { path, offset: 0, length: 28 })).data).buffer;
       const m = ofType('.pmtiles')[0]; let g = null;
       for (const c of ofType('.g593')) {                                                     // se usa el primero compatible con esta app
-        const v = Offline.inspect(await head(c.path)(), c.size);
+        const v = Offline.inspect(await head(c.path)(), c.size, await tail(c.path, c.size)());
         if (v.ok) { g = c; break; }
         logd('rutas incompatibles: ' + c.name + ' · ' + v.message);
       }
       logd('pendrive: ' + (m ? m.name + ' ' + Math.round(m.size / 1048576) + ' MB' : 'sin .pmtiles') + ' · ' + (g ? g.name + ' ' + Math.round(g.size / 1048576) + ' MB' : 'sin .g593 compatible'));
       if (!m && !g) { if (manual) toast('No se encontraron archivos .pmtiles ni .g593 compatibles.', 6000); return false; }
       if (m && !pm) await loadOfflineMap({ name: m.name, size: m.size, native: m.path }, true);
-      if (g && !Offline.ready()) await loadGraph({ name: g.name, size: g.size, head: head(g.path), arrayBuffer: () => readWhole(g.path, g.size, p => toast('Cargando rutas y búsqueda… ' + p + '%', 4000)) });
+      if (g && !Offline.ready()) await loadGraph({ name: g.name, size: g.size, head: head(g.path), tail: tail(g.path, g.size), arrayBuffer: () => readWhole(g.path, g.size, p => toast('Cargando rutas y búsqueda… ' + p + '%', 4000)) });
       return true;
     } catch (e) { if (manual) toast('No se pudo leer el almacenamiento: ' + (e.message || e)); return false; }
   }
@@ -187,16 +209,31 @@
     for await (const [name] of d.entries()) await d.removeEntry(name);
     toast('Archivos guardados borrados.');
   }
-  $('fileMap').onchange = async e => {
-    const out = [];
-    for (const f of Array.from(e.target.files)) {
+  async function loadPicked(files) {
+    const out = [], saved = store.get('nativeFiles', {});
+    for (const f of files) {
       const isG = /\.g593$/i.test(f.name), r = isG ? await loadGraph(f) : await loadOfflineMap(f);
       out.push(`${isG ? 'Rutas' : 'Mapa'} ${r.ok ? '✓' : '✗'} ${f.name}${r.ok ? '' : ' — ' + r.msg}`);
-      if (r.ok && !NATIVE && cfg().remember) { try { await opfsSave(f); } catch (err) { toast('No se pudo guardar una copia de ' + f.name); } }
+      if (r.ok && f.uriInfo) saved[isG ? 'graph' : 'map'] = f.uriInfo;                       // la app recuerda dónde está: no hay que volver a elegirlo
+      else if (r.ok && !NATIVE && cfg().remember) { try { await opfsSave(f); } catch (err) { toast('No se pudo guardar una copia de ' + f.name); } }
     }
+    store.set('nativeFiles', saved);
     if (out.length > 1) toast(out.join('\n'), 12000);                                       // resumen: qué cargó y qué no
     renderSettings();
-  };
+  }
+  $('fileMap').onchange = e => loadPicked(Array.from(e.target.files));
+  async function loadRemembered() {                                                          // al abrir la app: vuelve a cargar los archivos elegidos antes
+    const saved = store.get('nativeFiles', {}); let any = false;
+    for (const kind of ['map', 'graph']) {
+      const f = saved[kind]; if (!f) continue;
+      try {
+        await usb('read', { path: f.uri, offset: 0, length: 16 });                           // ¿sigue accesible?
+        const r = kind === 'map' ? await loadOfflineMap(nativeFile(f), true) : await loadGraph(nativeFile(f));
+        if (r.ok) any = true; else delete saved[kind];
+      } catch (e) { logd('archivo recordado no accesible: ' + f.name); delete saved[kind]; }
+    }
+    store.set('nativeFiles', saved); return any;
+  }
 
   /* ---------- Tema ---------- */
   function applyTheme() {
@@ -241,7 +278,7 @@
   $('btnMute').onclick = () => { setCfg({ voice: !cfg().voice }); paintMute(); Voice.stop(); };
 
   /* ---------- Buscador: sugerencias mientras se escribe ---------- */
-  function toggleFav(p) { const f = favs(); if (isFav(p)) store.set('favs', f.filter(x => !sameDest(x, p))); else { f.push(p); store.set('favs', f); } }
+  function toggleFav(p) { const f = favs(); return isFav(p) ? saveKey('favs', f.filter(x => !sameDest(x, p))) : saveKey('favs', f.concat([clean(p)])); }
   function renderList(sections, emptyMsg) {
     const ul = $('list'); clear(ul); let n = 0;
     sections.forEach(sec => {
@@ -257,7 +294,7 @@
         li.append(ic, tx);
         if (sec.star) {                                                                      // estrella: guardar o quitar de favoritos sin salir de la lista
           const st = document.createElement('button'); st.className = 'rowstar'; st.setAttribute('aria-label', 'Guardar o quitar de favoritos'); st.innerHTML = svg('star', isFav(p));
-          st.onclick = e => { e.stopPropagation(); toggleFav(p); st.innerHTML = svg('star', isFav(p)); };
+          st.onclick = e => { e.stopPropagation(); toggleFav(p); const sv = st.querySelector('svg'); if (sv) sv.setAttribute('fill', isFav(p) ? 'currentColor' : 'none'); };   // no se reemplaza el icono: así el toque no cierra la lista
           li.append(st);
         }
         if (sec.del) {
@@ -290,7 +327,8 @@
     $('q').focus(); toast(kind === 'origin' ? 'Busca el punto de partida o toca el mapa y elige "Desde aquí".' : 'Busca la dirección y tócala para guardarla.', 6000);
   }
   function savePlace(kind, p) {
-    store.set(kind, p); state.pick = null; $('q').placeholder = '¿A dónde vamos?'; $('q').value = ''; $('qClear').hidden = true;
+    if (!saveKey(kind, clean(p))) return;
+    state.pick = null; $('q').placeholder = '¿A dónde vamos?'; $('q').value = ''; $('qClear').hidden = true;
     toast((kind === 'home' ? 'Casa' : 'Trabajo') + ' guardada: ' + placeName(p)); renderSettings();
   }
   async function search(q, typing) {
@@ -309,20 +347,22 @@
     typingTimer = setTimeout(() => search(q, true), 350);                                   // espera a que termines de teclear
   });
   $('q').addEventListener('focus', () => { if (!$('q').value) showHome(); });
+  $('list').addEventListener('mousedown', e => e.preventDefault());                         // tocar la lista no le quita el foco a la barra (evita toques perdidos con el teclado)
   $('qClear').onclick = () => { $('q').value = ''; $('qClear').hidden = true; $('q').focus(); showHome(); };
   $('searchForm').onsubmit = e => { e.preventDefault(); const q = $('q').value.trim(); if (q.length >= 2) search(q, false); };
   $('btnFavs').onclick = () => { if ($('list').hidden) showFavs(); else $('list').hidden = true; };
-  document.addEventListener('click', e => { if (!e.target.closest('.top')) $('list').hidden = true; });
+  document.addEventListener('click', e => { if (e.target.isConnected && !e.target.closest('.top')) $('list').hidden = true; });
   const paintSaveStar = () => { if (state.dest) $('btnSave').innerHTML = svg('star', isFav(state.dest)); };
-  function openSaveMenu() {
-    const d = state.dest; if (!d) return;
+  let saveTarget = null;
+  function openSaveMenu(p) {                                                                // p = lugar a guardar (si no, el destino de la ruta)
+    const d = p || state.dest; if (!d) return; saveTarget = d;
     $('saveSub').textContent = placeName(d); $('saveFav').textContent = isFav(d) ? 'Quitar de favoritos' : 'Guardar en favoritos'; $('saveMenu').hidden = false;
   }
   const closeSave = () => { $('saveMenu').hidden = true; };
-  $('btnSave').onclick = openSaveMenu; $('saveClose').onclick = closeSave; $('saveMenu').onclick = e => { if (e.target === $('saveMenu')) closeSave(); };
-  $('saveFav').onclick = () => { toggleFav(state.dest); closeSave(); paintSaveStar(); toast(isFav(state.dest) ? 'Guardado en favoritos' : 'Quitado de favoritos'); };
-  $('saveHome').onclick = () => { store.set('home', state.dest); closeSave(); toast('Casa guardada: ' + placeName(state.dest)); };
-  $('saveWork').onclick = () => { store.set('work', state.dest); closeSave(); toast('Trabajo guardado: ' + placeName(state.dest)); };
+  $('btnSave').onclick = () => openSaveMenu(null); $('saveClose').onclick = closeSave; $('saveMenu').onclick = e => { if (e.target === $('saveMenu')) closeSave(); };
+  $('saveFav').onclick = () => { const ok = toggleFav(saveTarget); closeSave(); paintSaveStar(); if (ok) toast(isFav(saveTarget) ? 'Guardado en favoritos' : 'Quitado de favoritos'); };
+  $('saveHome').onclick = () => { if (saveKey('home', clean(saveTarget))) toast('Casa guardada: ' + placeName(saveTarget)); closeSave(); };
+  $('saveWork').onclick = () => { if (saveKey('work', clean(saveTarget))) toast('Trabajo guardado: ' + placeName(saveTarget)); closeSave(); };
 
   /* ---------- Ruta ---------- */
   function clearLayers() { ['casing', 'line', 'pin', 'org'].forEach(k => { if (layers[k]) { layers[k].remove(); layers[k] = null; } }); }
@@ -585,6 +625,11 @@
   $('btnMenu').onclick = () => { $('list').hidden = true; renderSettings(); showTab(curTab); $('settings').hidden = false; };
   $('btnHome').onclick = () => { closeSettings(); startPick('home'); };
   $('btnWork').onclick = () => { closeSettings(); startPick('work'); };
+  async function savePlaceHere(kind) {
+    if (!state.pos) return toast('Todavía no hay posición GPS. Sal a cielo abierto y espera unos segundos.', 5000);
+    savePlace(kind, await namePlace({ name: 'Mi ubicación', title: 'Mi ubicación', sub: '', lat: state.pos[0], lng: state.pos[1] }));
+  }
+  $('btnHomeHere').onclick = () => savePlaceHere('home'); $('btnWorkHere').onclick = () => savePlaceHere('work');
   $('btnHomeX').onclick = () => { store.set('home', null); renderSettings(); };
   $('btnWorkX').onclick = () => { store.set('work', null); renderSettings(); };
   $('setClose').onclick = closeSettings;
@@ -595,7 +640,11 @@
   });
   $('limDown').onclick = () => { setCfg({ limit: Math.max(30, cfg().limit - 10) }); renderSettings(); };
   $('limUp').onclick = () => { setCfg({ limit: Math.min(160, cfg().limit + 10) }); renderSettings(); };
-  $('btnLoad').onclick = () => $('fileMap').click();
+  $('btnLoad').onclick = async () => {
+    if (!NATIVE) return $('fileMap').click();
+    try { const list = await pickNative(); if (list.length) await loadPicked(list); }
+    catch (e) { logd('selector nativo: ' + ((e && e.message) || e)); toast('No se pudo abrir el selector de Android; se usa el del navegador.', 5000); $('fileMap').click(); }
+  };
   $('btnUsb').onclick = async () => { await usbScan(true); renderSettings(); };
   $('btnOnline').onclick = () => { pm = null; $('fileMap').value = ''; setBase(); renderSettings(); };
   $('btnForget').onclick = async () => { try { await opfsClear(); } catch (e) { toast('No se pudo borrar.'); } };
@@ -612,6 +661,7 @@
       `Mapa: ${pm ? pm.name + ' ' + mb(pm.size || 0) : 'en línea'}`,
       `Rutas: ${Offline.ready() ? (graphInfo ? graphInfo.name + ' ' + mb(graphInfo.size) : 'cargadas') : 'no cargadas'}`,
       `Internet: ${navigator.onLine ? 'sí' : 'no'}`, `Voz: ${voz}`,
+      `Almacenamiento: favoritos ${favs().length} · recientes ${recents().length} · casa ${place('home') ? 'sí' : 'no'} · trabajo ${place('work') ? 'sí' : 'no'} · escritura ${store.set('probe', 1) ? 'OK' : 'FALLA'}`,
       `GPS: ${state.lastFixAt ? Math.round((Date.now() - state.lastFixAt) / 1000) + ' s desde el último fix' : 'sin posición todavía'}${NATIVE ? ' (GPS de Android' + (lastNative ? ': ' + lastNative.provider + ', ±' + Math.round(lastNative.acc) + ' m' : '') + ')' : ' (navegador)'}`
     ].concat((window.GPSL_LOG || []).slice(-12));
     const box = $('diagLog'); box.textContent = lines.join('\n'); box.hidden = false;
@@ -640,6 +690,6 @@
     const ok = state.lastFixAt && Date.now() - state.lastFixAt < 15000;
     $('speed').classList.toggle('nogps', !ok); $('speed').querySelector('small').textContent = ok ? 'km/h' : 'sin GPS';
   }, 2000);
-  if (NATIVE) { if (cfg().autoOffline) setTimeout(() => usbScan(false), 800); }                                         // APK: carga lo que haya en el pendrive
+  if (NATIVE) { if (cfg().autoOffline) setTimeout(async () => { if (!(await loadRemembered())) usbScan(false); }, 800); }                                         // APK: carga lo que haya en el pendrive
   else { if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {}); if (cfg().remember) opfsLoad().catch(() => {}); }
 })();

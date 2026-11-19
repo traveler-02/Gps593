@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#2b7de9">
 <link rel="stylesheet" href="lib/leaflet.css">
-<link rel="stylesheet" href="style.css?v=1.0.0">
+<link rel="stylesheet" href="style.css?v=1.0.1">
 </head>
 <body>
 <div id="map" aria-label="Mapa"></div>
@@ -82,8 +82,8 @@
     <section class="tabpane" id="tab-lugares" hidden>
       <h3>Accesos rápidos</h3>
       <div class="group">
-        <div class="row"><span class="ic" data-i="home"></span><div class="tx"><b>Casa</b><small id="homeSub"></small></div><button id="btnHome" class="chip">Configurar</button><button id="btnHomeX" class="chip" hidden aria-label="Quitar Casa">✕</button></div>
-        <div class="row"><span class="ic" data-i="work"></span><div class="tx"><b>Trabajo</b><small id="workSub"></small></div><button id="btnWork" class="chip">Configurar</button><button id="btnWorkX" class="chip" hidden aria-label="Quitar Trabajo">✕</button></div>
+        <div class="row"><span class="ic" data-i="home"></span><div class="tx"><b>Casa</b><small id="homeSub"></small></div><button id="btnHomeHere" class="chip" title="Usar mi ubicación actual">Aquí</button><button id="btnHome" class="chip">Configurar</button><button id="btnHomeX" class="chip" hidden aria-label="Quitar Casa">✕</button></div>
+        <div class="row"><span class="ic" data-i="work"></span><div class="tx"><b>Trabajo</b><small id="workSub"></small></div><button id="btnWorkHere" class="chip" title="Usar mi ubicación actual">Aquí</button><button id="btnWork" class="chip">Configurar</button><button id="btnWorkX" class="chip" hidden aria-label="Quitar Trabajo">✕</button></div>
       </div>
       <h3>Mis lugares</h3>
       <div class="group"><button id="rowFavs" class="rowbtn">Favoritos</button><button id="rowRoutes" class="rowbtn">Rutas guardadas</button><button id="btnClearHist" class="rowbtn">Borrar historial de búsquedas</button></div>
@@ -94,7 +94,7 @@
       <div class="group">
         <div class="row col"><span>Mapa</span><small id="offMap"></small></div>
         <div class="row col"><span>Rutas y búsqueda</span><small id="offGraph"></small></div>
-        <div class="row" id="rowAuto" hidden><span>Cargar mapas sin conexión al iniciar</span><button id="tgAuto" class="sw" role="switch" aria-checked="false"></button></div>
+        <div class="row" id="rowAuto" hidden><span>Cargar al iniciar los archivos recordados</span><button id="tgAuto" class="sw" role="switch" aria-checked="false"></button></div>
         <div class="row" id="rowRemember"><span>Recordar los archivos en este dispositivo</span><button id="tgRemember" class="sw" role="switch" aria-checked="true"></button></div>
         <button id="btnUsb" class="rowbtn" hidden>Buscar en el teléfono o el pendrive</button>
         <button id="btnLoad" class="rowbtn">Elegir archivos (.pmtiles / .g593)</button>
@@ -148,10 +148,10 @@ window.addEventListener('unhandledrejection', function (e) { gl('PROMESA: ' + ((
 var _ce = console.error; console.error = function () { try { gl('console.error ' + Array.prototype.slice.call(arguments).join(' ').slice(0, 200)); } catch (x) {} _ce.apply(console, arguments); };
 </script>
 <script src="lib/leaflet.js"></script>
-<script src="offline.js?v=1.0.0"></script>
-<script src="routing.js?v=1.0.0"></script>
-<script src="config.js?v=1.0.0"></script>
-<script src="version.js?v=1.0.0"></script>
-<script src="app.js?v=1.0.0"></script>
+<script src="offline.js?v=1.0.1"></script>
+<script src="routing.js?v=1.0.1"></script>
+<script src="config.js?v=1.0.1"></script>
+<script src="version.js?v=1.0.1"></script>
+<script src="app.js?v=1.0.1"></script>
 </body>
 </html>

@@ -176,6 +176,15 @@
       return { name: sub ? `${title}, ${sub}` : title, title, sub, lat: c[1], lng: c[0] };
     }).filter(r => r.title && !seen[r.name] && (seen[r.name] = 1));
   }
+  async function reverse(lat, lng) {                                                          // calle y ciudad de un punto (para guardar lugares tocando el mapa)
+    try {
+      const j = await (await fetchT(`https://photon.komoot.io/reverse?lon=${lng.toFixed(6)}&lat=${lat.toFixed(6)}&limit=1`, null, 4000)).json();
+      const f = (j.features || [])[0]; if (!f) return null;
+      const p = f.properties, street = [p.street, p.housenumber].filter(Boolean).join(' '), title = p.name || street || p.city || '';
+      const sub = [p.name ? street : '', p.district, p.city || p.county, p.state].filter(Boolean).join(', ');
+      return title ? { name: sub ? `${title}, ${sub}` : title, title, sub } : null;
+    } catch (e) { return null; }
+  }
   async function geocode(q, signal, opts) {
     opts = opts || {};
     if (local() && !navigator.onLine) return g.Offline.search(q);
@@ -195,5 +204,5 @@
   const fmtClock = sec => new Date(Date.now() + sec * 1000)
     .toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  g.Routing = { geocode, fetchRoute, restore, progress, pointAt, haversine, bearing, fmtDist, fmtTime, fmtClock };
+  g.Routing = { reverse, geocode, fetchRoute, restore, progress, pointAt, haversine, bearing, fmtDist, fmtTime, fmtClock };
 })(typeof window !== 'undefined' ? window : globalThis);

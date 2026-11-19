@@ -1,6 +1,22 @@
 package ec.gps593.app;
 
 import android.Manifest;
+import android.app.Activity;
+import android.content.ClipData;
+import android.content.ContentResolver;
+import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.ParcelFileDescriptor;
+import android.provider.OpenableColumns;
+import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.List;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.location.Location;
@@ -249,6 +265,100 @@ public class UsbFilesPlugin extends Plugin {
         }
     }
 
+    /** Abre el selector de archivos de Android (pendrive, Descargas, Drive…) y recuerda el permiso de lectura. */
+    @PluginMethod
+    public void pickFile(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(call, intent, "pickResult");
+    }
+
+    @ActivityCallback
+    private void pickResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) { call.reject("cancelado"); return; }
+        Intent data = result.getData();
+        List<Uri> uris = new ArrayList<>();
+        ClipData clip = data.getClipData();
+        if (clip != null) {
+            for (int i = 0; i < clip.getItemCount(); i++) uris.add(clip.getItemAt(i).getUri());
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        ContentResolver cr = getContext().getContentResolver();
+        JSArray out = new JSArray();
+        for (Uri u : uris) {
+            try { cr.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception e) { /* no se puede recordar: se pedirá otra vez */ }
+            String name = "archivo";
+            long size = -1;
+            try (Cursor c = cr.query(u, new String[] { OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE }, null, null, null)) {
+                if (c != null && c.moveToFirst()) {
+                    name = c.getString(0);
+                    size = c.isNull(1) ? -1 : c.getLong(1);
+                }
+            } catch (Exception e) { /* sin datos */ }
+            JSObject o = new JSObject();
+            o.put("uri", u.toString());
+            o.put("name", name);
+            o.put("size", size);
+            out.put(o);
+        }
+        JSObject res = new JSObject();
+        res.put("files", out);
+        call.resolve(res);
+    }
+
+    /** Tamaño de un archivo content:// elegido con pickFile. */
+    @PluginMethod
+    public void fileSize(PluginCall call) {
+        try {
+            ParcelFileDescriptor pfd = getContext().getContentResolver().openFileDescriptor(Uri.parse(call.getString("path", "")), "r");
+            if (pfd == null) { call.reject("no se pudo abrir"); return; }
+            long size = pfd.getStatSize();
+            pfd.close();
+            JSObject r = new JSObject();
+            r.put("size", size);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject(String.valueOf(e.getMessage()));
+        }
+    }
+
+    private void readUri(PluginCall call, String uriStr, long offset, int length) {
+        ContentResolver cr = getContext().getContentResolver();
+        Uri uri = Uri.parse(uriStr);
+        byte[] buf = new byte[length];
+        int n = 0;
+        try {
+            ParcelFileDescriptor pfd = cr.openFileDescriptor(uri, "r");
+            if (pfd == null) { call.reject("no se pudo abrir"); return; }
+            try (FileInputStream fis = new ParcelFileDescriptor.AutoCloseInputStream(pfd)) {
+                FileChannel ch = fis.getChannel();
+                ByteBuffer bb = ByteBuffer.wrap(buf);
+                long pos = offset;
+                int r;
+                while (bb.hasRemaining() && (r = ch.read(bb, pos)) > 0) { pos += r; n += r; }
+            }
+        } catch (Exception e) {
+            try (InputStream is = cr.openInputStream(uri)) {                    // plan B: proveedores que no permiten saltar a una posición
+                n = 0;
+                long left = offset;
+                while (left > 0) { long s = is.skip(left); if (s <= 0) break; left -= s; }
+                int r;
+                while (n < length && (r = is.read(buf, n, length - n)) > 0) n += r;
+            } catch (Exception e2) {
+                call.reject(String.valueOf(e2.getMessage()));
+                return;
+            }
+        }
+        JSObject res = new JSObject();
+        res.put("data", Base64.encodeToString(buf, 0, n, Base64.NO_WRAP));
+        call.resolve(res);
+    }
+
     /** Lee length bytes desde offset; devuelve base64. */
     @PluginMethod
     public void read(PluginCall call) {
@@ -256,6 +366,7 @@ public class UsbFilesPlugin extends Plugin {
         long offset = call.getData().optLong("offset", 0);
         int length = call.getInt("length", 0);
         if (path == null || length <= 0) { call.reject("parámetros inválidos"); return; }
+        if (path.startsWith("content://")) { readUri(call, path, offset, length); return; }
         try (RandomAccessFile f = new RandomAccessFile(path, "r")) {
             f.seek(offset);
             byte[] buf = new byte[length];

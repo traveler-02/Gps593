@@ -3,7 +3,7 @@
 # Uso: pestaña Actions > "Crear mapa y rutas de Ecuador" > Run workflow.
 # Primero con dry_run activado (solo muestra el tamaño del mapa). Después desactívalo.
 # Las Releases admiten archivos de hasta 2 GiB y no gastan la cuota de 500 MB de los artefactos.
-name: Crear mapa y rutas de Ecuador
+name: Crear mapa y rutas (GPS593 mini)
 on:
   workflow_dispatch:
     inputs:
@@ -15,7 +15,11 @@ on:
         default: '13'
       nombre:
         description: 'Nombre base de los archivos'
-        default: 'ecuador'
+        default: 'ecuador-mini'
+      sin_servicio:
+        description: 'Rutas más livianas: sin calles de servicio (recomendado para radios con poca memoria)'
+        type: boolean
+        default: true
       dry_run:
         description: 'Solo calcular el tamaño del mapa (no crea ni publica nada)'
         type: boolean
@@ -49,15 +53,16 @@ jobs:
         run: |
           pip install osmium numpy
           curl -L -o ecuador.osm.pbf https://download.geofabrik.de/south-america/ecuador-latest.osm.pbf
-          python tools/build_graph.py ecuador.osm.pbf "${{ inputs.nombre }}.g593"
+          FLAG=""; if [ "${{ inputs.sin_servicio }}" = "true" ]; then FLAG="--sin-servicio"; fi
+          python tools/build_graph.py ecuador.osm.pbf "${{ inputs.nombre }}.g593" $FLAG
           ls -lh *.g593
       - name: Publicar en Releases
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view mapas -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create mapas -R "$GITHUB_REPOSITORY" --title "Mapas y datos de GPS 593" \
+          gh release view mapas-mini -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create mapas-mini -R "$GITHUB_REPOSITORY" --title "Mapas y rutas de GPS593 mini" \
               --notes "Archivos para usar sin internet: copia el .pmtiles y el .g593 al pendrive."
-          gh release upload mapas "${{ inputs.nombre }}.pmtiles" "${{ inputs.nombre }}.g593" -R "$GITHUB_REPOSITORY" --clobber
-          echo "Descarga: https://github.com/$GITHUB_REPOSITORY/releases/tag/mapas"
+          gh release upload mapas-mini "${{ inputs.nombre }}.pmtiles" "${{ inputs.nombre }}.g593" -R "$GITHUB_REPOSITORY" --clobber
+          echo "Descarga: https://github.com/$GITHUB_REPOSITORY/releases/tag/mapas-mini"

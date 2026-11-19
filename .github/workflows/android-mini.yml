@@ -1,6 +1,6 @@
 # Compila el APK de GPS 593 (Capacitor) en un servidor de GitHub y lo publica en la Release "android".
-# Uso: pestaña Actions > "Compilar APK Android" > Run workflow. Descarga gps593-debug.apk desde Releases.
-name: Compilar APK Android
+# Uso: pestaña Actions > "Compilar APK Android" > Run workflow. Descarga gps593-mini-debug.apk desde Releases.
+name: Compilar APK Android (GPS593 mini)
 on:
   workflow_dispatch:
 permissions:
@@ -35,9 +35,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk gps593-debug.apk
-          gh release view android -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create android -R "$GITHUB_REPOSITORY" --title "GPS 593 para Android" \
+          cp android/app/build/outputs/apk/debug/app-debug.apk gps593-mini-debug.apk
+          gh release view android-mini -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create android-mini -R "$GITHUB_REPOSITORY" --title "GPS593 mini para Android" \
               --notes "APK de prueba. Instálalo en la radio o el celular (permite instalar apps de origen desconocido)."
-          gh release upload android gps593-debug.apk -R "$GITHUB_REPOSITORY" --clobber
-          echo "Descarga: https://github.com/$GITHUB_REPOSITORY/releases/tag/android"
+          gh release upload android-mini gps593-mini-debug.apk -R "$GITHUB_REPOSITORY" --clobber
+          echo "Descarga: https://github.com/$GITHUB_REPOSITORY/releases/tag/android-mini"

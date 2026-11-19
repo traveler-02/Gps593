@@ -11,7 +11,7 @@
 
   const mb = n => Math.round(n / 1048576) + ' MB';
   /* Comprueba que sea un archivo de rutas de GPS593 mini (formato 1) y que esté completo, mirando solo la cabecera. */
-  function inspect(head, size) {
+  function inspect(head, size, tail) {
     if (!head || head.byteLength < 28) return { ok: false, message: 'archivo demasiado pequeño' };
     const dv = new DataView(head);
     if (dv.getUint32(0, true) !== 0x33393547) return { ok: false, message: 'no es un archivo de rutas de GPS593 (cabecera desconocida)' };
@@ -19,13 +19,19 @@
           nA = dv.getUint32(20, true), jl = dv.getUint32(24, true);
     if (ver !== 1) return { ok: false, message: `formato de rutas versión ${ver}; GPS593 mini usa la versión 1. Genera el archivo con el flujo «Crear mapa y rutas (GPS593 mini)»` };
     const expected = 28 + 4 * (2 * nN + (nN + 1) + nA + 5 * nS + (nS + 1) + 2 * nP) + nS + jl;
-    if (size !== undefined && expected !== size) return { ok: false, message: `tamaño distinto al esperado (${mb(size)} en lugar de ${mb(expected)}): archivo incompleto o de otra aplicación` };
+    const footer = size === expected + 8;                                                    // los archivos nuevos terminan en «G593END!»
+    if (size !== undefined && size !== expected && !footer) return { ok: false, message: `tamaño distinto al esperado (${mb(size)} en lugar de ${mb(expected)}): archivo incompleto o de otra aplicación` };
+    if (tail && tail.byteLength) {
+      const t = new Uint8Array(tail), end = Array.from(t.slice(-8)).map(c => String.fromCharCode(c)).join('');
+      if (footer && end !== 'G593END!') return { ok: false, message: 'archivo incompleto: le falta el final (descarga o copia interrumpida). Vuelve a descargarlo y a copiarlo' };
+      if (!footer && t[t.length - 1] !== 0x7d) return { ok: false, message: 'archivo incompleto o dañado: el final está vacío (descarga o copia interrumpida). Vuelve a descargarlo y a copiarlo' };
+    }
     return { ok: true, message: 'ok' };
   }
 
   async function load(file) {
     const buf = await file.arrayBuffer(), dv = new DataView(buf);
-    const v = inspect(buf, buf.byteLength); if (!v.ok) throw new Error(v.message);
+    const v = inspect(buf, buf.byteLength, buf.slice(Math.max(0, buf.byteLength - 8))); if (!v.ok) throw new Error(v.message);
     if (dv.getUint32(0, true) !== 0x33393547) throw new Error('Archivo .g593 no válido');      // "G593"
     const nN = dv.getUint32(8, true), nS = dv.getUint32(12, true), nP = dv.getUint32(16, true),
           nA = dv.getUint32(20, true), jl = dv.getUint32(24, true);
